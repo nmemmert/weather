@@ -767,13 +767,13 @@ body.high-contrast {
   .app {
     max-width: 1120px;
     margin: 0 auto;
-    padding: 1.35rem 1.3rem 2.4rem;
+    padding: 1.35rem 1.3rem calc(6.9rem + env(safe-area-inset-bottom, 0px));
   }
 
   .masthead {
     position: static;
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto 1fr;
     align-items: center;
     gap: 1rem;
     margin-bottom: 1rem;
@@ -787,28 +787,49 @@ body.high-contrast {
   .masthead h1 { margin: 0; font-size: 2rem; }
 
   .tabs {
-    position: static;
-    display: flex;
-    gap: 0;
-    background: transparent;
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 0;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 300;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.22rem;
+    padding: 0.45rem 0.28rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
+    background: rgba(9, 28, 40, 0.92);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid rgba(121, 165, 191, 0.36);
+    border-radius: 0;
   }
 
   .tab {
-    min-height: 44px;
-    flex-direction: row;
-    border-radius: 0;
-    border-right: 1px solid var(--line);
-    padding: 0.45rem 0.9rem;
-    background: transparent;
-    color: var(--ink-soft);
+    min-height: 58px;
+    flex-direction: column;
+    border-radius: 12px;
+    border-right: none;
+    padding: 0.32rem 0.15rem;
+    background: rgba(255, 255, 255, 0.04);
+    color: #d8eaf4;
+    gap: 0.24rem;
   }
 
-  .tab:last-child { border-right: none; }
-  .tab-icon { font-size: 1rem; }
-  .tab-text { font-size: 0.76rem; }
+  .tab-icon {
+    font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+    font-size: 1.18rem;
+    line-height: 1;
+  }
+
+  .tab-text {
+    font-size: 0.67rem;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    font-weight: 600;
+  }
+
+  .tab.active {
+    color: #fff;
+    background: linear-gradient(180deg, var(--brand) 0%, var(--brand-strong) 100%);
+  }
 
   .tagline { margin: 0; }
 
