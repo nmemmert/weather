@@ -20,6 +20,49 @@ app.get('/api/geocode', async (req, res) => {
   }
 });
 
+// Reverse geocoding proxy
+app.get('/api/reverse-geocode', async (req, res) => {
+  const { lat, lon } = req.query;
+  if (!lat || !lon) return res.status(400).json({ error: 'Missing lat/lon' });
+
+  try {
+    const params = new URLSearchParams({
+      format: 'jsonv2',
+      lat: String(lat),
+      lon: String(lon),
+      zoom: '10',
+      addressdetails: '1',
+    });
+
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?${params}`, {
+      headers: {
+        'User-Agent': 'weather-app-v2 (nate@necloud.us)',
+        Accept: 'application/json',
+      },
+    });
+
+    if (!r.ok) {
+      throw new Error(`Reverse geocoding failed with status ${r.status}`);
+    }
+
+    const data = await r.json();
+    const address = data.address || {};
+    const name = address.city || address.town || address.village || address.hamlet || address.municipality || address.county || address.state || data.name || 'Detected location';
+
+    res.json({
+      name,
+      admin1: address.state || address.region || address.county || '',
+      country: address.country || '',
+      latitude: Number(lat),
+      longitude: Number(lon),
+      timezone: 'auto',
+      display_name: data.display_name || '',
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Reverse geocoding failed', detail: e.message });
+  }
+});
+
 // Weather proxy
 app.get('/api/weather', async (req, res) => {
   const { lat, lon, tz, units } = req.query;

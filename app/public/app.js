@@ -268,7 +268,7 @@ document.querySelectorAll('.tab').forEach(btn => {
       setTimeout(() => { radarFull.map && radarFull.map.invalidateSize(); }, 50);
     }
     if (btn.dataset.tab === 'maps') {
-      setTimeout(() => { mapsOverview.map && mapsOverview.map.invalidateSize(); }, 50);
+      setTimeout(refreshMapsOverview, 80);
     }
   });
 });
@@ -281,6 +281,12 @@ document.getElementById('open-radar-tab').addEventListener('click', () => {
 async function geocode(q) {
   const r = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
   if (!r.ok) throw new Error('Geocoding failed');
+  return r.json();
+}
+
+async function reverseGeocode(lat, lon) {
+  const r = await fetch(`/api/reverse-geocode?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
+  if (!r.ok) throw new Error('Reverse geocoding failed');
   return r.json();
 }
 
@@ -300,6 +306,34 @@ async function fetchAlerts(lat, lon) {
   const r = await fetch(`/api/alerts?lat=${lat}&lon=${lon}`);
   if (!r.ok) throw new Error('Alerts fetch failed');
   return r.json();
+}
+
+function detectedCityFallback(lat, lon) {
+  return {
+    name: `Detected location (${lat.toFixed(2)}, ${lon.toFixed(2)})`,
+    latitude: lat,
+    longitude: lon,
+    country: '',
+    admin1: '',
+    timezone: 'auto',
+  };
+}
+
+async function buildDetectedCity(lat, lon) {
+  const fallback = detectedCityFallback(lat, lon);
+
+  try {
+    const place = await reverseGeocode(lat, lon);
+    return {
+      ...fallback,
+      ...place,
+      latitude: lat,
+      longitude: lon,
+      timezone: place.timezone || 'auto',
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 // ── Radar engine ──────────────────────────────────────────────────────────────
@@ -508,21 +542,39 @@ function clearWindArrows() {
   state.windArrows = [];
 }
 
+function refreshMapsOverview() {
+  if (!mapsOverview.map) return;
+
+  mapsOverview.map.invalidateSize();
+
+  if (!state.currentCity) return;
+
+  mapsOverview.panTo(state.currentCity.latitude, state.currentCity.longitude, 6);
+
+  clearLightningMarkers();
+  clearWindArrows();
+
+  if (state.showLightning) renderLightningStrikes(state.currentCity);
+  if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
+}
+
 function renderLightningStrikes(city) {
   if (!mapsOverview.map || !state.showLightning) return;
   clearLightningMarkers();
-  
+
   // Simulate lightning strikes in the vicinity of the city (for now, use random placement)
   // In a production app, you'd fetch from a lightning API like Blitzortung or similar
-  // For demo: show 3-5 random strikes within 0.5 degrees
-  const strokeCount = Math.random() < 0.7 ? 0 : (Math.floor(Math.random() * 4) + 1);
-  
+  // For demo: always show a few sample strikes so the overlay is visible when enabled.
+  const strokeCount = 3;
+
   for (let i = 0; i < strokeCount; i++) {
-    const latOffset = (Math.random() - 0.5) * 0.5;
-    const lonOffset = (Math.random() - 0.5) * 0.5;
+    const angle = (Math.PI * 2 * i) / strokeCount;
+    const radius = 0.18 + i * 0.06;
+    const latOffset = Math.cos(angle) * radius;
+    const lonOffset = Math.sin(angle) * radius;
     const lat = parseFloat(city.latitude) + latOffset;
     const lon = parseFloat(city.longitude) + lonOffset;
-    
+
     const marker = L.circleMarker([lat, lon], {
       radius: 4,
       fillColor: '#ffeb3b',
@@ -530,8 +582,8 @@ function renderLightningStrikes(city) {
       color: '#ff6f00',
       weight: 1.5,
       className: 'lightning-marker',
-    }).bindPopup('Lightning strike');
-    
+    }).bindPopup('Sample lightning overlay');
+
     marker.addTo(mapsOverview.map);
     state.lightningMarkers.push(marker);
   }
@@ -669,6 +721,7 @@ function renderWeather(data, city) {
   updateSourceLocation(city);
   updateShareUrl(city);
   persistLastCity(city);
+  refreshMapsOverview();
 
   show(weatherDiv);
 }
@@ -771,26 +824,7 @@ async function autoLocateAndLoad() {
   try {
     const pos = await getPosition();
     const { latitude: lat, longitude: lon } = pos.coords;
-    const city = {
-      name: `Auto-detected (${lat.toFixed(2)}, ${lon.toFixed(2)})`,
-      latitude: lat,
-      longitude: lon,
-      country: '',
-      admin1: '',
-      timezone: 'auto',
-    };
-    try {
-      const geoData = await geocode(`${lat.toFixed(2)},${lon.toFixed(2)}`);
-      const best = geoData.results?.[0];
-      if (best) {
-        city.name = best.name || city.name;
-        city.country = best.country || '';
-        city.admin1 = best.admin1 || '';
-        city.timezone = best.timezone || 'auto';
-      }
-    } catch {
-      // Reverse geocode is optional for startup auto-locate.
-    }
+    const city = await buildDetectedCity(lat, lon);
     searchInput.value = city.name;
     await loadAll(city, 'auto-detect');
     return true;
@@ -861,17 +895,7 @@ locateBtn.addEventListener('click', () => {
   navigator.geolocation.getCurrentPosition(async pos => {
     const { latitude: lat, longitude: lon } = pos.coords;
     try {
-      const geoData = await geocode(`${lat.toFixed(2)},${lon.toFixed(2)}`);
-      const city = geoData.results?.[0] || {
-        name: `${lat.toFixed(2)}, ${lon.toFixed(2)}`,
-        latitude: lat,
-        longitude: lon,
-        country: '',
-        admin1: '',
-        timezone: 'auto'
-      };
-      city.latitude = lat;
-      city.longitude = lon;
+      const city = await buildDetectedCity(lat, lon);
       await loadAll(city, 'gps-button');
     } catch {
       showErr('Could not fetch weather for your location.');
