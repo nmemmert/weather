@@ -4,12 +4,12 @@ services:
     container_name: weather-app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3005:3005"
     environment:
-      - PORT=3000
+      - PORT=3005
       - NODE_ENV=production
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3005/"]
       interval: 30s
       timeout: 5s
       retries: 3
