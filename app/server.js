@@ -105,6 +105,16 @@ function ensurePushConfigured() {
   return true;
 }
 
+// HTML: never cache (always revalidate so SW/app updates are picked up immediately)
+app.use('/', (req, res, next) => {
+  if (req.path === '/' || req.path.endsWith('.html')) {
+    res.setHeader('Cache-Control', 'no-store');
+  } else if (req.path.endsWith('.css') || req.path.endsWith('.js') || req.path === '/sw.js' || req.path === '/manifest.json') {
+    // Short-lived cache — browser revalidates every 60 s but still gets a 304 fast
+    res.setHeader('Cache-Control', 'no-cache');
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/healthz', (_req, res) => {

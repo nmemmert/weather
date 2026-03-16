@@ -1,12 +1,12 @@
 'use strict';
 
-const CACHE = 'weather-v3';
+const CACHE = 'weather-v4';
 
 // App shell — cached on install for offline use
 const PRECACHE = [
   '/',
-  '/app.js',
-  '/style.css',
+  '/app.js?v=4',
+  '/style.css?v=4',
   '/manifest.json',
   '/icons/icon.svg'
 ];
