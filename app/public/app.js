@@ -179,6 +179,28 @@ function tempUnit() { return state.units === 'us' ? 'F' : 'C'; }
 function speedUnit() { return state.units === 'us' ? 'mph' : 'km/h'; }
 function visUnit() { return state.units === 'us' ? 'mi' : 'km'; }
 
+function weatherThemeFromCode(code) {
+  const n = Number(code);
+  if (Number.isNaN(n)) return 'cloud';
+  if (n === 0 || n === 1) return 'clear';
+  if (n === 2 || n === 3) return 'cloud';
+  if (n === 45 || n === 48) return 'fog';
+  if ((n >= 51 && n <= 67) || (n >= 80 && n <= 82)) return 'rain';
+  if (n >= 71 && n <= 77) return 'snow';
+  if (n >= 85 && n <= 86) return 'snow';
+  if (n >= 95) return 'storm';
+  return 'cloud';
+}
+
+function applyWeatherBackground(code, isDay) {
+  const theme = weatherThemeFromCode(code);
+  const body = document.body;
+  const themes = ['clear', 'cloud', 'rain', 'snow', 'storm', 'fog'];
+  themes.forEach(t => body.classList.remove(`weather-${t}`));
+  body.classList.add(`weather-${theme}`);
+  body.classList.toggle('weather-night', Number(isDay) === 0);
+}
+
 function updateUnitsButton() {
   const label = state.units === 'us' ? 'US' : 'Metric';
   unitsBtn.textContent = label;
@@ -1041,6 +1063,8 @@ function renderWeather(data, city) {
   const c = data.current;
   const h = data.hourly;
   const d = data.daily;
+
+  applyWeatherBackground(c.weather_code, c.is_day);
 
   document.getElementById('loc-name').textContent = city.name;
   document.getElementById('loc-sub').textContent = [city.admin1, city.country].filter(Boolean).join(', ');
