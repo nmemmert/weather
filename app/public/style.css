@@ -94,6 +94,16 @@ a:hover { text-decoration: underline; }
   transition: background 0.15s, color 0.15s;
 }
 
+.tab-icon {
+  font-size: 0.82rem;
+  line-height: 1;
+  margin-right: 0.35rem;
+}
+
+.tab-text {
+  line-height: 1;
+}
+
 .tab:last-child { border-right: none; }
 .tab:hover { background: var(--paper-dark); color: var(--ink); }
 .tab.active { background: var(--ink); color: var(--paper); }
@@ -1011,6 +1021,8 @@ select:focus-visible {
     --border: #b3cad8;
     --accent: #d26a2b;
     --cool: #0f6f9e;
+    --card-bg: rgba(255, 255, 255, 0.76);
+    --card-stroke: rgba(179, 202, 216, 0.55);
   }
 
   body {
@@ -1100,13 +1112,13 @@ select:focus-visible {
   .panel-note {
     border-radius: 14px;
     overflow: hidden;
-    box-shadow: 0 8px 18px rgba(16, 35, 49, 0.08);
-    border: 1px solid rgba(179, 202, 216, 0.92);
+    box-shadow: 0 8px 20px rgba(16, 35, 49, 0.07);
+    border: 1px solid var(--card-stroke);
   }
 
   .loc-header {
     padding: 0.7rem 0.8rem;
-    background: rgba(255, 255, 255, 0.72);
+    background: var(--card-bg);
     margin-bottom: 0.8rem;
   }
 
@@ -1135,8 +1147,8 @@ select:focus-visible {
 
   .current-grid > * {
     border-radius: 14px;
-    border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.84);
+    border: 1px solid var(--card-stroke);
+    background: var(--card-bg);
     padding: 0.95rem 0.85rem;
   }
 
@@ -1158,9 +1170,9 @@ select:focus-visible {
   }
 
   .stat {
-    border: 1px solid var(--border);
+    border: 1px solid var(--card-stroke);
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.82);
+    background: var(--card-bg);
   }
 
   .astro-grid,
@@ -1173,9 +1185,9 @@ select:focus-visible {
 
   .astro-card,
   .aq-card {
-    border: 1px solid var(--border);
+    border: 1px solid var(--card-stroke);
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.82);
+    background: var(--card-bg);
     padding: 0.72rem 0.7rem;
   }
 
@@ -1195,8 +1207,8 @@ select:focus-visible {
 
   .hourly-scroll {
     border-radius: 12px;
-    border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid var(--card-stroke);
+    background: var(--card-bg);
   }
 
   .hour-cell {
@@ -1209,7 +1221,7 @@ select:focus-visible {
   }
 
   .daily-list {
-    background: rgba(255, 255, 255, 0.82);
+    background: var(--card-bg);
   }
 
   .day-row {
@@ -1220,7 +1232,7 @@ select:focus-visible {
   .alerts-wrap,
   .settings-wrap,
   .panel-note {
-    background: rgba(255, 255, 255, 0.8);
+    background: var(--card-bg);
   }
 
   .settings-row {
@@ -1240,6 +1252,7 @@ select:focus-visible {
     background: rgba(10, 35, 51, 0.94);
     backdrop-filter: blur(10px);
     padding: 0.28rem 0.25rem calc(0.2rem + env(safe-area-inset-bottom, 0px));
+    overflow: hidden;
   }
 
   .tab {
@@ -1250,8 +1263,23 @@ select:focus-visible {
     letter-spacing: 0.02em;
     border-radius: 10px;
     text-transform: none;
-    line-height: 1.15;
+    line-height: 1.05;
     padding: 0.2rem 0.25rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.18rem;
+  }
+
+  .tab-icon {
+    margin-right: 0;
+    font-size: 0.9rem;
+  }
+
+  .tab-text {
+    font-size: 0.56rem;
+    letter-spacing: 0.02em;
   }
 
   .tab:hover {
@@ -1275,20 +1303,25 @@ select:focus-visible {
 
 @media (max-width: 480px) {
   .tabs {
-    display: flex;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    gap: 0.35rem;
-    padding-left: 0.35rem;
-    padding-right: 0.35rem;
-    scroll-snap-type: x proximity;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.22rem;
+    padding-left: 0.2rem;
+    padding-right: 0.2rem;
   }
 
   .tab {
-    flex: 0 0 auto;
-    min-width: 82px;
-    font-size: 0.62rem;
-    scroll-snap-align: start;
+    min-width: 0;
+    border-radius: 8px;
+    padding: 0.2rem 0.12rem;
+  }
+
+  .tab-icon {
+    font-size: 0.84rem;
+  }
+
+  .tab-text {
+    font-size: 0.52rem;
   }
 }
 
