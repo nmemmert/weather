@@ -122,6 +122,7 @@ const contrastToggle = document.getElementById('contrast-toggle');
 const contrastStatus = document.getElementById('contrast-status');
 const radarOpacityEl = document.getElementById('radar-opacity');
 const lightningAgeEl = document.getElementById('lightning-age');
+const mapsFullscreenBtn = document.getElementById('maps-fullscreen-btn');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const show = el => el.classList.remove('hidden');
@@ -466,6 +467,8 @@ document.querySelectorAll('.tab').forEach(btn => {
     }
     if (btn.dataset.tab === 'maps') {
       setTimeout(refreshMapsOverview, 80);
+    } else {
+      setMapsFullscreen(false);
     }
   });
 });
@@ -731,8 +734,32 @@ function createOverviewMap(mapEl) {
 
   const radarLayer = L.tileLayer('https://tilecache.rainviewer.com/v2/radar/nowcast_0/256/{z}/{x}/{y}/2/1_1.png', {
     maxZoom: 15,
-    opacity: Math.max(0.15, Math.min(0.9, state.radarOpacity / 100)),
+    opacity: Math.max(0.25, Math.min(0.9, state.radarOpacity / 100)),
   }).addTo(map);
+
+  let lastRadarFramePath = null;
+
+  async function refreshRadarOverlay() {
+    try {
+      const r = await fetch('/api/radar/times');
+      if (!r.ok) return;
+      const data = await r.json();
+      const frames = [
+        ...(data?.radar?.past || []),
+        ...(data?.radar?.nowcast || []),
+      ];
+      const latest = frames[frames.length - 1];
+      const path = latest?.path;
+      if (!path || path === lastRadarFramePath) return;
+      lastRadarFramePath = path;
+      radarLayer.setUrl(`https://tilecache.rainviewer.com${path}/256/{z}/{x}/{y}/2/1_1.png`);
+    } catch (e) {
+      console.warn('Maps radar overlay refresh failed', e);
+    }
+  }
+
+  refreshRadarOverlay();
+  setInterval(refreshRadarOverlay, 5 * 60 * 1000);
 
   let marker = null;
 
@@ -749,11 +776,11 @@ function createOverviewMap(mapEl) {
   }
 
   function setRadarOpacity(opacityPct) {
-    const normalized = Math.max(0.15, Math.min(0.9, Number(opacityPct) / 100));
+    const normalized = Math.max(0.25, Math.min(0.9, Number(opacityPct) / 100));
     radarLayer.setOpacity(normalized);
   }
 
-  return { map, panTo, setRadarOpacity };
+  return { map, panTo, setRadarOpacity, refreshRadarOverlay };
 }
 
 function clearLightningLayer() {
@@ -774,6 +801,7 @@ function refreshMapsOverview() {
   if (!mapsOverview.map) return;
 
   mapsOverview.map.invalidateSize();
+  mapsOverview.refreshRadarOverlay();
 
   if (!state.currentCity) return;
 
@@ -905,6 +933,50 @@ function renderWindArrows(city) {
 }
 
 const mapsOverview = createOverviewMap(document.getElementById('map-overview'));
+
+function setMapsFullscreen(active) {
+  const wrap = document.querySelector('#tab-maps .maps-wrap');
+  if (!wrap) return;
+  wrap.classList.toggle('is-fullscreen', active);
+  document.body.classList.toggle('map-fullscreen-lock', active);
+  if (mapsFullscreenBtn) {
+    mapsFullscreenBtn.textContent = active ? 'Exit fullscreen' : 'Fullscreen map';
+  }
+  setTimeout(() => {
+    if (mapsOverview?.map) mapsOverview.map.invalidateSize();
+  }, 100);
+}
+
+if (mapsFullscreenBtn) {
+  mapsFullscreenBtn.addEventListener('click', async () => {
+    const wrap = document.querySelector('#tab-maps .maps-wrap');
+    if (!wrap) return;
+
+    if (document.fullscreenElement === wrap) {
+      await document.exitFullscreen().catch(() => {});
+      setMapsFullscreen(false);
+      return;
+    }
+
+    if (wrap.requestFullscreen) {
+      try {
+        await wrap.requestFullscreen();
+        setMapsFullscreen(true);
+        return;
+      } catch {
+        // Some mobile browsers reject Fullscreen API; fallback below.
+      }
+    }
+
+    setMapsFullscreen(!wrap.classList.contains('is-fullscreen'));
+  });
+}
+
+document.addEventListener('fullscreenchange', () => {
+  const wrap = document.querySelector('#tab-maps .maps-wrap');
+  if (!wrap) return;
+  setMapsFullscreen(document.fullscreenElement === wrap);
+});
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 function renderDailyForecast(daily) {

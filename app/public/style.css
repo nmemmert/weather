@@ -167,6 +167,7 @@ a:hover { text-decoration: underline; }
 .search-row {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -195,6 +196,7 @@ button, input, select { font-family: var(--ui); }
 }
 
 .search-row button {
+  flex: 0 0 auto;
   min-height: 46px;
   border: none;
   border-left: 1px solid var(--line);
@@ -205,18 +207,25 @@ button, input, select { font-family: var(--ui); }
 #search-btn {
   background: linear-gradient(180deg, #15445f 0%, #11344c 100%);
   color: #f2f8fc;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  font-weight: 700;
-  min-width: 96px;
-  font-size: 0.78rem;
+  min-width: 52px;
+  width: 52px;
+  font-size: 0;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 0;
+}
+
+#search-btn::before {
+  content: '🔎';
+  font-size: 1rem;
+  line-height: 1;
 }
 
 #locate-btn,
 #units-btn {
   background: var(--surface) !important;
   color: var(--ink) !important;
-  min-width: 50px;
+  min-width: 48px;
 }
 
 #locate-btn {
@@ -224,31 +233,12 @@ button, input, select { font-family: var(--ui); }
 }
 
 @media (max-width: 390px) {
-  #search-btn {
-    min-width: 84px;
-    font-size: 0.72rem;
-  }
-
+  #search-btn,
   #locate-btn,
   #units-btn {
     min-width: 46px;
+    width: 46px;
     padding: 0 0.5rem;
-  }
-}
-
-@media (max-width: 460px) {
-  #search-btn {
-    min-width: 48px;
-    font-size: 0;
-    letter-spacing: 0;
-    text-transform: none;
-    padding: 0;
-  }
-
-  #search-btn::before {
-    content: '🔎';
-    font-size: 1rem;
-    line-height: 1;
   }
 }
 
@@ -666,6 +656,32 @@ button, input, select { font-family: var(--ui); }
   background: var(--surface);
   color: var(--ink);
   padding: 0.35rem 0.55rem;
+}
+
+#maps-fullscreen-btn {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+body.map-fullscreen-lock {
+  overflow: hidden;
+}
+
+.maps-wrap.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 520;
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  background: var(--paper);
+  overflow-y: auto;
+  padding: calc(0.65rem + env(safe-area-inset-top, 0px)) 0.65rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
+}
+
+.maps-wrap.is-fullscreen .map-overview {
+  height: calc(100dvh - 210px);
+  min-height: 320px;
 }
 
 .wind-legend {
