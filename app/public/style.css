@@ -652,6 +652,12 @@ a:hover { text-decoration: underline; }
 .day-lo { color: var(--ink-light); }
 .day-meta { text-align: right; font-size: 0.62rem; color: var(--ink-light); line-height: 1.6; }
 
+#daily-forecast-toggle {
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 /* ── Footer ── */
 .footer-note {
   font-size: 0.62rem;

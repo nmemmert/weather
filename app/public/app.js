@@ -48,6 +48,7 @@ const state = {
   lastRefreshAt: 0,
   lightningMarkers: [],
   windArrows: [],
+  dailyExpanded: false,
 };
 
 // ── DOM ──────────────────────────────────────────────────────────────────────
@@ -73,6 +74,8 @@ const lightningToggle = document.getElementById('lightning-toggle');
 const windToggle = document.getElementById('wind-toggle');
 const lightningStatus = document.getElementById('lightning-status');
 const windStatus = document.getElementById('wind-status');
+const dailyForecastLabel = document.getElementById('daily-forecast-label');
+const dailyForecastToggle = document.getElementById('daily-forecast-toggle');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const show = el => el.classList.remove('hidden');
@@ -310,13 +313,24 @@ async function fetchAlerts(lat, lon) {
 
 function detectedCityFallback(lat, lon) {
   return {
-    name: `Detected location (${lat.toFixed(2)}, ${lon.toFixed(2)})`,
+    name: `Auto-detected (${lat.toFixed(2)}, ${lon.toFixed(2)})`,
     latitude: lat,
     longitude: lon,
     country: '',
     admin1: '',
     timezone: 'auto',
   };
+}
+
+function resolveDetectedName(place, fallback) {
+  const raw = (place?.name || '').trim();
+  const genericName = !raw || /current\s*location|detected\s*location/i.test(raw);
+  if (!genericName) return raw;
+
+  const displayRoot = (place?.display_name || '').split(',')[0]?.trim();
+  if (displayRoot) return displayRoot;
+
+  return fallback.name;
 }
 
 async function buildDetectedCity(lat, lon) {
@@ -327,6 +341,7 @@ async function buildDetectedCity(lat, lon) {
     return {
       ...fallback,
       ...place,
+      name: resolveDetectedName(place, fallback),
       latitude: lat,
       longitude: lon,
       timezone: place.timezone || 'auto',
@@ -639,6 +654,43 @@ function renderWindArrows(city) {
 const mapsOverview = createOverviewMap(document.getElementById('map-overview'));
 
 // ── Rendering ────────────────────────────────────────────────────────────────
+function renderDailyForecast(daily) {
+  const list = document.getElementById('daily-list');
+  const totalDays = daily?.time?.length || 0;
+  const defaultDays = Math.min(7, totalDays);
+  const visibleDays = state.dailyExpanded ? totalDays : defaultDays;
+
+  list.innerHTML = '';
+  for (let i = 0; i < visibleDays; i++) {
+    const dw = wmo(daily.weather_code[i]);
+    const row = document.createElement('div');
+    row.className = 'day-row' + (i === 0 ? ' today' : '');
+    row.innerHTML = `
+      <div class="day-name">${formatDayShort(daily.time[i])}</div>
+      <div class="day-icon">${dw.icon}</div>
+      <div class="day-desc">${dw.desc}</div>
+      <div class="day-temps">${tempDisplay(daily.temperature_2m_max[i])}°<span class="day-lo"> / ${tempDisplay(daily.temperature_2m_min[i])}°</span></div>
+      <div class="day-meta">${daily.precipitation_probability_max[i] > 0 ? daily.precipitation_probability_max[i] + '% rain<br>' : ''}${speedDisplay(daily.wind_speed_10m_max[i])} ${speedUnit()}</div>
+    `;
+    list.appendChild(row);
+  }
+
+  if (dailyForecastLabel) {
+    dailyForecastLabel.textContent = `${visibleDays}-Day Forecast`;
+  }
+
+  if (dailyForecastToggle) {
+    if (totalDays > defaultDays) {
+      show(dailyForecastToggle);
+      dailyForecastToggle.textContent = state.dailyExpanded
+        ? 'Show 7-day view'
+        : `Show full ${totalDays}-day forecast`;
+    } else {
+      hide(dailyForecastToggle);
+    }
+  }
+}
+
 function renderWeather(data, city) {
   const c = data.current;
   const h = data.hourly;
@@ -695,21 +747,7 @@ function renderWeather(data, city) {
     track.appendChild(cell);
   }
 
-  const list = document.getElementById('daily-list');
-  list.innerHTML = '';
-  for (let i = 0; i < d.time.length; i++) {
-    const dw = wmo(d.weather_code[i]);
-    const row = document.createElement('div');
-    row.className = 'day-row' + (i === 0 ? ' today' : '');
-    row.innerHTML = `
-      <div class="day-name">${formatDayShort(d.time[i])}</div>
-      <div class="day-icon">${dw.icon}</div>
-      <div class="day-desc">${dw.desc}</div>
-      <div class="day-temps">${tempDisplay(d.temperature_2m_max[i])}°<span class="day-lo"> / ${tempDisplay(d.temperature_2m_min[i])}°</span></div>
-      <div class="day-meta">${d.precipitation_probability_max[i] > 0 ? d.precipitation_probability_max[i] + '% rain<br>' : ''}${speedDisplay(d.wind_speed_10m_max[i])} ${speedUnit()}</div>
-    `;
-    list.appendChild(row);
-  }
+  renderDailyForecast(d);
 
   document.getElementById('updated-at').textContent =
     new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -995,6 +1033,14 @@ windToggle.addEventListener('change', () => {
     if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
   }
 });
+
+if (dailyForecastToggle) {
+  dailyForecastToggle.addEventListener('click', () => {
+    if (!state.currentWeather?.daily) return;
+    state.dailyExpanded = !state.dailyExpanded;
+    renderDailyForecast(state.currentWeather.daily);
+  });
+}
 
 function startAutoRefresh() {
   clearInterval(state.autoRefreshTimer);

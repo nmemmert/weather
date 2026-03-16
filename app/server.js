@@ -26,6 +26,32 @@ app.get('/api/reverse-geocode', async (req, res) => {
   if (!lat || !lon) return res.status(400).json({ error: 'Missing lat/lon' });
 
   try {
+    // Prefer Open-Meteo reverse geocoding for stable city/region labels.
+    const omParams = new URLSearchParams({
+      latitude: String(lat),
+      longitude: String(lon),
+      count: '1',
+      language: 'en',
+      format: 'json',
+    });
+
+    const omResp = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?${omParams}`);
+    if (omResp.ok) {
+      const omData = await omResp.json();
+      const top = omData?.results?.[0];
+      if (top) {
+        return res.json({
+          name: top.name || top.admin2 || top.admin1 || top.country || 'Detected location',
+          admin1: top.admin1 || top.admin2 || '',
+          country: top.country || '',
+          latitude: Number(lat),
+          longitude: Number(lon),
+          timezone: top.timezone || 'auto',
+          display_name: [top.name, top.admin1, top.country].filter(Boolean).join(', '),
+        });
+      }
+    }
+
     const params = new URLSearchParams({
       format: 'jsonv2',
       lat: String(lat),
