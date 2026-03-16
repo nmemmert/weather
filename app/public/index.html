@@ -25,6 +25,9 @@
     <nav class="tabs">
       <button class="tab active" data-tab="conditions">Conditions</button>
       <button class="tab" data-tab="radar-full">Radar</button>
+      <button class="tab" data-tab="maps">Maps</button>
+      <button class="tab" data-tab="alerts">Alerts</button>
+      <button class="tab" data-tab="settings">Settings</button>
     </nav>
     <span class="tagline">Open-Meteo · RainViewer</span>
   </header>
@@ -35,6 +38,7 @@
       <input id="search-input" type="text" placeholder="City, region, or country…" autocomplete="off" spellcheck="false">
       <button id="search-btn">Search</button>
       <button id="locate-btn" title="Use my location">⌖</button>
+      <button id="units-btn" title="Toggle units">US</button>
     </div>
     <ul id="suggestions" class="suggestions hidden"></ul>
     <p id="error-msg" class="error hidden"></p>
@@ -54,7 +58,10 @@
           <div id="loc-name" class="loc-name"></div>
           <div id="loc-sub" class="loc-sub"></div>
         </div>
-        <div id="loc-time" class="loc-time"></div>
+        <div class="loc-actions">
+          <div id="loc-time" class="loc-time"></div>
+          <button id="share-btn" class="link-btn" type="button">Share location</button>
+        </div>
       </div>
 
       <!-- Current hero -->
@@ -81,6 +88,18 @@
         <div class="stat"><div class="stat-label">Cloud Cover</div><div class="stat-val"><span id="cur-cloud">--</span><span class="unit">%</span></div></div>
       </div>
 
+      <div class="astro-grid">
+        <div class="astro-card"><div class="stat-label">Sunrise</div><div id="sunrise-val" class="astro-val">--</div></div>
+        <div class="astro-card"><div class="stat-label">Sunset</div><div id="sunset-val" class="astro-val">--</div></div>
+        <div class="astro-card"><div class="stat-label">Moon Phase</div><div id="moon-phase-val" class="astro-val">--</div></div>
+      </div>
+
+      <div class="aq-grid">
+        <div class="aq-card"><div class="stat-label">US AQI</div><div id="aqi-us" class="aq-val">--</div></div>
+        <div class="aq-card"><div class="stat-label">PM2.5</div><div id="pm25" class="aq-val">--</div></div>
+        <div class="aq-card"><div class="stat-label">Pollen</div><div id="pollen" class="aq-val">--</div></div>
+      </div>
+
       <!-- Embedded radar panel -->
       <div class="section-head">
         <span class="section-label">Radar</span>
@@ -92,6 +111,7 @@
         <div id="radar-embed" class="radar-map"></div>
         <div class="radar-controls">
           <button id="embed-play" class="radar-btn play-btn" title="Play/Pause">▶</button>
+          <button id="embed-layer" class="radar-btn layer-btn" title="Toggle radar/satellite">R</button>
           <div class="radar-timeline" id="embed-timeline"></div>
           <span id="embed-timestamp" class="radar-ts">--</span>
         </div>
@@ -126,6 +146,7 @@
       <div id="radar-full" class="radar-map radar-map-full"></div>
       <div class="radar-controls radar-controls-full">
         <button id="full-play" class="radar-btn play-btn" title="Play/Pause">▶</button>
+        <button id="full-layer" class="radar-btn layer-btn" title="Toggle radar/satellite">R</button>
         <div class="radar-timeline" id="full-timeline"></div>
         <span id="full-timestamp" class="radar-ts">--</span>
         <div class="radar-legend">
@@ -136,6 +157,83 @@
       </div>
     </div>
     <p class="radar-attribution">Radar tiles © <a href="https://www.rainviewer.com" target="_blank">RainViewer</a> · Map © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a></p>
+  </div>
+
+  <!-- ── TAB: MAPS ── -->
+  <div id="tab-maps" class="tab-panel hidden">
+    <div class="maps-wrap">
+      <div id="map-overview" class="radar-map map-overview"></div>
+      <div class="maps-meta">
+        <div class="maps-card">
+          <div class="stat-label">Data Source Location</div>
+          <div id="maps-location" class="maps-value">--</div>
+        </div>
+        <div class="maps-card">
+          <div class="stat-label">Current Wind</div>
+          <div id="maps-wind" class="maps-value">--</div>
+        </div>
+      </div>
+      <p class="panel-note">Toggle lightning strikes and wind overlay in Settings.</p>
+    </div>
+  </div>
+
+  <!-- ── TAB: ALERTS ── -->
+  <div id="tab-alerts" class="tab-panel hidden">
+    <div id="alerts-wrap" class="alerts-wrap hidden">
+      <div class="section-head">
+        <span class="section-label">Weather Alerts</span>
+        <button id="notify-btn" class="link-btn" type="button">Enable notifications</button>
+      </div>
+      <div id="alerts-list" class="alerts-list"></div>
+    </div>
+    <p id="alerts-empty" class="panel-note">No active alerts for this location.</p>
+  </div>
+
+  <!-- ── TAB: SETTINGS ── -->
+  <div id="tab-settings" class="tab-panel hidden">
+    <div class="settings-wrap">
+      <div class="saved-wrap">
+        <div class="saved-head">
+          <span>Saved locations</span>
+          <button id="save-current-btn" class="link-btn" type="button">Save current</button>
+        </div>
+        <div id="saved-locations" class="saved-locations"></div>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label">Auto-detect location on startup</span>
+        <label class="auto-detect-toggle" for="auto-detect-toggle">
+          <input id="auto-detect-toggle" type="checkbox" checked>
+          <span>Enabled</span>
+        </label>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label">Data source location</span>
+        <span id="settings-location" class="settings-value">--</span>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label">Units</span>
+        <button id="units-btn-settings" class="settings-btn" type="button">US</button>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label">Lightning strikes on map</span>
+        <label class="toggle-label" for="lightning-toggle">
+          <input id="lightning-toggle" type="checkbox">
+          <span id="lightning-status">Off</span>
+        </label>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label">Wind overlay on map</span>
+        <label class="toggle-label" for="wind-toggle">
+          <input id="wind-toggle" type="checkbox">
+          <span id="wind-status">Off</span>
+        </label>
+      </div>
+    </div>
   </div>
 
 </div><!-- .app -->
