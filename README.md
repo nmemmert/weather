@@ -27,6 +27,19 @@ docker compose up -d
 
 App runs at **http://localhost:3000**
 
+## Pull prebuilt image
+
+```bash
+docker pull ghcr.io/nmemmert/weather:latest
+docker run -d --name weather-app -p 3000:3000 ghcr.io/nmemmert/weather:latest
+```
+
+If the package is private, log in first:
+
+```bash
+echo "<GITHUB_PAT>" | docker login ghcr.io -u nmemmert --password-stdin
+```
+
 ## Change the port
 
 Edit `docker-compose.yml`:

@@ -1,6 +1,6 @@
 services:
   weather:
-    build: ./app
+    image: ghcr.io/nmemmert/weather:latest
     container_name: weather-app
     restart: unless-stopped
     ports:
