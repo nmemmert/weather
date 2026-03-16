@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const webpush = require('web-push');
 
 const app = express();
@@ -41,7 +42,47 @@ async function fetchJsonWithRetry(url, options = {}, attempts = 3, initialDelayM
   throw lastErr || new Error('Unknown upstream fetch error');
 }
 
-const subscriptions = new Map();
+// --------------- Persistent data storage ---------------
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const SUBS_FILE = path.join(DATA_DIR, 'subscriptions.json');
+const SENT_IDS_FILE = path.join(DATA_DIR, 'sent-alert-ids.json');
+
+try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
+
+function loadSubscriptions() {
+  try {
+    const arr = JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8'));
+    const map = new Map();
+    for (const entry of arr) {
+      if (entry?.subscription?.endpoint) map.set(entry.subscription.endpoint, entry);
+    }
+    return map;
+  } catch (_) { return new Map(); }
+}
+
+function saveSubscriptions() {
+  try {
+    fs.writeFileSync(SUBS_FILE, JSON.stringify(Array.from(subscriptions.values()), null, 2));
+  } catch (e) { console.error('Failed to save subscriptions:', e.message); }
+}
+
+const subscriptions = loadSubscriptions();
+if (subscriptions.size) console.log(`Loaded ${subscriptions.size} push subscription(s) from disk.`);
+
+function loadSentAlertIds() {
+  try {
+    return new Map(JSON.parse(fs.readFileSync(SENT_IDS_FILE, 'utf8')));
+  } catch (_) { return new Map(); }
+}
+
+function saveSentAlertIds() {
+  try {
+    fs.writeFileSync(SENT_IDS_FILE, JSON.stringify(Array.from(sentAlertIds.entries()), null, 2));
+  } catch (e) { console.error('Failed to save sent alert IDs:', e.message); }
+}
+
+const sentAlertIds = loadSentAlertIds();
+// --------------------------------------------------------
 
 function getVapidConfig() {
   const publicKey = process.env.VAPID_PUBLIC_KEY || '';
@@ -277,6 +318,7 @@ app.post('/api/push/subscribe', (req, res) => {
     location: location || null,
     createdAt: Date.now(),
   });
+  saveSubscriptions();
   res.json({ ok: true, count: subscriptions.size });
 });
 
@@ -284,6 +326,7 @@ app.post('/api/push/unsubscribe', (req, res) => {
   const { endpoint } = req.body || {};
   if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
   subscriptions.delete(endpoint);
+  saveSubscriptions();
   res.json({ ok: true, count: subscriptions.size });
 });
 
@@ -315,6 +358,7 @@ app.post('/api/push/test', async (req, res) => {
       if (statusCode === 404 || statusCode === 410) {
         subscriptions.delete(entry.subscription.endpoint);
         removed++;
+        saveSubscriptions();
       } else {
         errors.push(String(e.message || e));
       }
@@ -323,6 +367,89 @@ app.post('/api/push/test', async (req, res) => {
 
   res.json({ ok: true, sent, removed, errors, count: subscriptions.size });
 });
+
+// --------------- Background NWS alert poller ---------------
+// Runs every ALERT_POLL_INTERVAL_MS (default 5 min).
+// Sends push notifications to all subscribers for any new active NWS alerts
+// at their saved location. Deduplicates by alert ID (persisted to disk).
+
+function cleanSentAlertIds() {
+  const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+  for (const [id, ts] of sentAlertIds) {
+    if (ts < cutoff) sentAlertIds.delete(id);
+  }
+}
+
+async function alertPoller() {
+  if (!pushConfigured() || !ensurePushConfigured()) return;
+  if (subscriptions.size === 0) return;
+
+  cleanSentAlertIds();
+
+  // Group subscribers by rounded lat/lon so we don't spam the NWS API.
+  const byLocation = new Map();
+  for (const entry of subscriptions.values()) {
+    const loc = entry.location;
+    if (!loc?.latitude || !loc?.longitude) continue;
+    const key = `${Number(loc.latitude).toFixed(2)},${Number(loc.longitude).toFixed(2)}`;
+    if (!byLocation.has(key)) byLocation.set(key, { loc, entries: [] });
+    byLocation.get(key).entries.push(entry);
+  }
+
+  let savedIds = false;
+  for (const { loc, entries } of byLocation.values()) {
+    try {
+      const data = await fetchJsonWithRetry(
+        `https://api.weather.gov/alerts/active?point=${loc.latitude},${loc.longitude}`,
+        { headers: { 'User-Agent': 'weather-app-v2 (nate@necloud.us)', Accept: 'application/geo+json' } }
+      ).catch(() => null);
+      if (!data?.features?.length) continue;
+
+      for (const feature of data.features) {
+        const id = feature?.properties?.id;
+        if (!id || sentAlertIds.has(id)) continue;
+
+        const props = feature.properties || {};
+        const title = props.event || 'Weather Alert';
+        const area = props.areaDesc ? props.areaDesc.split(';')[0].trim() : (loc.name || 'Your area');
+        const headline = props.headline || props.description?.slice(0, 120) || title;
+        const payload = JSON.stringify({
+          title,
+          body: `${area}: ${headline}`,
+          url: '/',
+          ts: Date.now(),
+        });
+
+        let anySuccess = false;
+        for (const entry of entries) {
+          try {
+            await webpush.sendNotification(entry.subscription, payload);
+            anySuccess = true;
+          } catch (e) {
+            if (e?.statusCode === 404 || e?.statusCode === 410) {
+              subscriptions.delete(entry.subscription.endpoint);
+              saveSubscriptions();
+            }
+          }
+        }
+
+        if (anySuccess) {
+          console.log(`Alert push sent: [${id}] ${title} → ${area}`);
+          sentAlertIds.set(id, Date.now());
+          savedIds = true;
+        }
+      }
+    } catch (e) {
+      console.error('Alert poller error:', e.message);
+    }
+  }
+
+  if (savedIds) saveSentAlertIds();
+}
+
+const POLL_INTERVAL_MS = Number(process.env.ALERT_POLL_INTERVAL_MS) || 5 * 60 * 1000;
+setInterval(alertPoller, POLL_INTERVAL_MS);
+// -----------------------------------------------------------
 
 // RainViewer timestamps proxy
 app.get('/api/radar/times', async (req, res) => {
