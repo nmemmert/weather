@@ -1039,7 +1039,7 @@ select:focus-visible {
 
   .search-wrap {
     position: sticky;
-    top: 0;
+    top: env(safe-area-inset-top, 0px);
     z-index: 180;
     background: rgba(238, 245, 248, 0.92);
     backdrop-filter: blur(4px);
@@ -1184,6 +1184,11 @@ select:focus-visible {
     height: 210px;
   }
 
+  .radar-map-full {
+    height: calc(100dvh - 18.5rem);
+    min-height: 300px;
+  }
+
   .radar-controls {
     background: rgba(207, 224, 234, 0.9);
   }
@@ -1261,6 +1266,45 @@ select:focus-visible {
 
   .footer-note {
     padding-bottom: 0.2rem;
+  }
+
+  .tab-panel {
+    min-height: calc(100dvh - 9rem);
+  }
+}
+
+@media (max-width: 480px) {
+  .tabs {
+    display: flex;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 0.35rem;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+    scroll-snap-type: x proximity;
+  }
+
+  .tab {
+    flex: 0 0 auto;
+    min-width: 82px;
+    font-size: 0.62rem;
+    scroll-snap-align: start;
+  }
+}
+
+/* iPhone Safari tuning: avoid form zoom and preserve safe-area readability. */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 768px) {
+    .search-row input,
+    .search-row button,
+    .maps-control select,
+    .settings-btn {
+      font-size: 16px;
+    }
+
+    .app {
+      padding-bottom: calc(6.1rem + env(safe-area-inset-bottom, 0px));
+    }
   }
 }
 
