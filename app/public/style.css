@@ -35,6 +35,7 @@ html, body {
   font-family: var(--mono);
   font-size: 14px;
   line-height: 1.6;
+  overflow-x: hidden;
 }
 
 .app {
@@ -815,80 +816,97 @@ select:focus-visible {
 
 /* ── Responsive ── */
 @media (max-width: 640px) {
-  .app { padding: 1.25rem 1rem max(3rem, calc(1.5rem + env(safe-area-inset-bottom, 0px))); }
-  .masthead { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
-  .masthead h1 { font-size: 1.6rem; }
-  .tagline { display: none; }
-  .tabs {
-    grid-column: 1 / -1;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scroll-snap-type: x proximity;
-  }
-  .tab {
-    min-width: 80px;
-    padding: 0.35rem 0.65rem;
-    scroll-snap-align: start;
+  .app {
+    padding: 1rem 0.8rem max(3.5rem, calc(1.75rem + env(safe-area-inset-bottom, 0px)));
   }
 
+  .masthead {
+    grid-template-columns: 1fr;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+  }
+  .masthead h1 { font-size: 1.7rem; }
+  .tagline { display: none; }
+
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    width: 100%;
+  }
+  .tab {
+    min-width: 0;
+    min-height: 42px;
+    font-size: 0.66rem;
+    padding: 0.35rem 0.25rem;
+    letter-spacing: 0.05em;
+  }
+
+  .search-wrap { margin-bottom: 1.25rem; }
   .search-row {
     display: grid;
-    grid-template-columns: 1fr auto auto;
-    gap: 0.4rem;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.35rem;
   }
   .search-row input {
     grid-column: 1 / -1;
     border-right: 1px solid var(--border);
+    font-size: 0.95rem;
   }
   .search-row button {
     border: 1px solid var(--border);
+    padding: 0.55rem 0.4rem;
+    font-size: 0.7rem;
   }
   #search-btn {
-    min-width: 108px;
+    min-width: 0;
+    width: 100%;
   }
   #locate-btn,
   #units-btn {
     border-left: 1px solid var(--border) !important;
-    min-width: 56px;
-    padding: 0.6rem 0.65rem !important;
+    min-width: 0;
+    width: 100%;
+    padding: 0.55rem 0.4rem !important;
   }
 
-  .stats-bar { grid-template-columns: repeat(3, 1fr); }
+  .loc-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
+  }
+  .loc-name { font-size: 1.35rem; }
+  .loc-actions { align-items: flex-start; }
+
+  .current-grid > * { padding: 1rem 0.85rem; }
+  .current-grid { grid-template-columns: 1fr; }
+  .temp-big {
+    font-size: 3.4rem;
+    letter-spacing: -1.5px;
+  }
+  .cond-icon { font-size: 2.1rem; }
+
+  .stats-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat { padding: 0.75rem 0.45rem; }
+  .stat-val { font-size: 0.9rem; }
   .astro-grid,
   .aq-grid { grid-template-columns: 1fr; }
-  .current-grid { grid-template-columns: 1fr; }
-  .temp-big { font-size: 4rem; }
-  .day-row {
-    grid-template-columns: 74px 32px 1fr auto;
-    gap: 0.55rem;
-    padding: 0.75rem 0.7rem;
-  }
-  .day-desc {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .day-temps {
-    font-size: 0.78rem;
-  }
-  .day-meta { display: none; }
-  .radar-map { height: 240px; }
-  .legend-bar { width: 50px; }
-  .loc-actions { align-items: flex-start; margin-top: 0.5rem; }
-  .loc-header { flex-direction: column; align-items: flex-start; }
 
   .section-head {
     align-items: flex-start;
     flex-direction: column;
     gap: 0.35rem;
   }
-  .section-actions {
-    justify-content: flex-start;
-  }
+  .section-actions { justify-content: flex-start; }
 
+  .radar-map { height: 220px; }
+  .radar-map-full {
+    height: 52vh;
+    min-height: 280px;
+  }
   .radar-controls {
-    gap: 0.55rem;
-    padding: 0.55rem;
+    gap: 0.5rem;
+    padding: 0.5rem;
   }
   .radar-timeline {
     order: 3;
@@ -902,11 +920,81 @@ select:focus-visible {
     text-align: left;
   }
 
-  .settings-row { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
-  .settings-value { text-align: left; }
-  .map-overview { height: 280px; }
+  .hour-cell { min-width: 64px; }
+  .hour-temp { font-size: 0.8rem; }
+  .hour-time,
+  .hour-precip,
+  .hour-feels { font-size: 0.55rem; }
+
+  .day-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'name temps'
+      'desc desc';
+    gap: 0.25rem 0.6rem;
+    padding: 0.65rem 0.7rem;
+    align-items: start;
+  }
+  .day-name {
+    grid-area: name;
+    font-size: 0.74rem;
+  }
+  .day-icon { display: none; }
+  .day-desc {
+    grid-area: desc;
+    font-size: 0.66rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .day-temps {
+    grid-area: temps;
+    font-size: 0.72rem;
+  }
+  .day-meta { display: none; }
+
+  .map-overview { height: 250px; }
   .maps-controls,
   .maps-meta { grid-template-columns: 1fr; }
-  .saved-item { grid-template-columns: 28px 1fr 28px 28px 28px; }
+  .wind-legend {
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .legend-bar { width: 56px; }
+
+  .settings-wrap {
+    padding: 0.65rem;
+    gap: 0.75rem;
+  }
+  .settings-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
+    padding: 0.55rem 0.6rem;
+  }
+  .settings-value { text-align: left; }
+
+  .saved-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .saved-item {
+    grid-template-columns: 28px 1fr 28px 28px 28px;
+  }
+  .saved-chip {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .saved-meta { display: none; }
+}
+
+@media (max-width: 420px) {
+  .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tab { font-size: 0.64rem; }
+  .loc-name { font-size: 1.2rem; }
+  .temp-big { font-size: 3rem; }
+  .stat-label { font-size: 0.54rem; }
+  .section-label { font-size: 0.58rem; }
 }
