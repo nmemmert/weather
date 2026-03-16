@@ -1,0 +1,20 @@
+{
+  "name": "Weather",
+  "short_name": "Weather",
+  "description": "Self-hosted weather app with animated radar. No API keys required.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#191510",
+  "theme_color": "#1a1a1a",
+  "orientation": "portrait-primary",
+  "categories": ["weather", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

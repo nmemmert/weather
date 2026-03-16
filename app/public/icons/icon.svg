@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Solid background (fills corners for maskable safe zone) -->
+  <rect width="512" height="512" fill="#1a1a1a"/>
+  <!-- Sun -->
+  <circle cx="205" cy="205" r="70" fill="#e07848"/>
+  <!-- Cloud bumps (front, overlapping sun) -->
+  <circle cx="215" cy="325" r="72" fill="#ece7dc"/>
+  <circle cx="305" cy="297" r="88" fill="#ece7dc"/>
+  <circle cx="390" cy="328" r="62" fill="#ece7dc"/>
+  <!-- Cloud base (flat bottom) -->
+  <rect x="147" y="335" width="305" height="68" fill="#ece7dc"/>
+</svg>

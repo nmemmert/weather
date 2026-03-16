@@ -454,6 +454,38 @@ a:hover { text-decoration: underline; }
   padding-top: 0.75rem;
 }
 
+/* ── PWA: safe area insets (iPhone notch / home bar) ── */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .app {
+    padding-left:   max(1.5rem, calc(1rem + env(safe-area-inset-left)));
+    padding-right:  max(1.5rem, calc(1rem + env(safe-area-inset-right)));
+    padding-bottom: max(4rem,   calc(2rem + env(safe-area-inset-bottom)));
+  }
+  .radar-map-full {
+    height: calc(100vh - 280px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+}
+
+/* ── PWA: status bar area when running standalone ── */
+@media (display-mode: standalone) {
+  .masthead { padding-top: env(safe-area-inset-top); }
+}
+
+/* ── Touch-friendly tap targets (min 44 × 44 px) ── */
+.tab {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.search-row input,
+.search-row button { min-height: 44px; }
+.radar-btn { width: 44px; height: 44px; font-size: 0.8rem; }
+.tl-tick { min-height: 36px; }
+
+/* iOS momentum scrolling */
+.hourly-scroll { -webkit-overflow-scrolling: touch; }
+
 /* ── Leaflet overrides ── */
 .leaflet-container { background: #1a1f2e; }
 .leaflet-control-zoom a {
@@ -464,7 +496,7 @@ a:hover { text-decoration: underline; }
 
 /* ── Responsive ── */
 @media (max-width: 640px) {
-  .app { padding: 1.25rem 1rem 3rem; }
+  .app { padding: 1.25rem 1rem max(3rem, calc(1.5rem + env(safe-area-inset-bottom, 0px))); }
   .masthead { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
   .masthead h1 { font-size: 1.6rem; }
   .tagline { display: none; }
