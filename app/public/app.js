@@ -31,25 +31,64 @@ const STORAGE_KEYS = {
   autoDetect: 'weather.autoDetect',
   showLightning: 'weather.showLightning',
   showWind: 'weather.showWind',
+  defaultCity: 'weather.defaultCity',
+  highContrast: 'weather.highContrast',
+  radarOpacity: 'weather.radarOpacity',
+  lightningAgeMin: 'weather.lightningAgeMin',
 };
+
+function parseSavedCities(raw) {
+  try {
+    const parsed = JSON.parse(raw || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((entry) => {
+      if (entry && entry.city && typeof entry.city === 'object') {
+        return {
+          city: entry.city,
+          addedAt: entry.addedAt || Date.now(),
+          lastViewedAt: entry.lastViewedAt || null,
+          isDefault: Boolean(entry.isDefault),
+        };
+      }
+      return {
+        city: entry,
+        addedAt: Date.now(),
+        lastViewedAt: null,
+        isDefault: false,
+      };
+    }).filter(e => e.city && e.city.latitude != null && e.city.longitude != null);
+  } catch {
+    return [];
+  }
+}
 
 const state = {
   units: localStorage.getItem(STORAGE_KEYS.units) || 'us',
   autoDetect: localStorage.getItem(STORAGE_KEYS.autoDetect) !== 'false',
   showLightning: localStorage.getItem(STORAGE_KEYS.showLightning) !== 'false',
   showWind: localStorage.getItem(STORAGE_KEYS.showWind) !== 'false',
+  highContrast: localStorage.getItem(STORAGE_KEYS.highContrast) === 'true',
+  radarOpacity: Number(localStorage.getItem(STORAGE_KEYS.radarOpacity) || 65),
+  lightningAgeMin: Number(localStorage.getItem(STORAGE_KEYS.lightningAgeMin) || 15),
   currentCity: null,
   currentWeather: null,
   currentAir: null,
   currentSource: 'startup',
-  savedCities: JSON.parse(localStorage.getItem(STORAGE_KEYS.savedCities) || '[]'),
+  savedCities: parseSavedCities(localStorage.getItem(STORAGE_KEYS.savedCities)),
   alertIdsSeen: new Set(),
   autoRefreshTimer: null,
   lastRefreshAt: 0,
-  lightningMarkers: [],
+  lightningLayer: null,
   windArrows: [],
   dailyExpanded: false,
+  pushSupported: false,
+  pushEnabled: false,
 };
+
+const persistedDefaultKey = localStorage.getItem(STORAGE_KEYS.defaultCity);
+if (persistedDefaultKey && state.savedCities.length && !state.savedCities.some(e => e.isDefault)) {
+  state.savedCities = state.savedCities.map(e => ({ ...e, isDefault: cityKey(e.city) === persistedDefaultKey }));
+}
 
 // ── DOM ──────────────────────────────────────────────────────────────────────
 const searchInput = document.getElementById('search-input');
@@ -76,6 +115,13 @@ const lightningStatus = document.getElementById('lightning-status');
 const windStatus = document.getElementById('wind-status');
 const dailyForecastLabel = document.getElementById('daily-forecast-label');
 const dailyForecastToggle = document.getElementById('daily-forecast-toggle');
+const pushTestBtn = document.getElementById('push-test-btn');
+const hourlySummaryEl = document.getElementById('hourly-summary');
+const defaultCityEl = document.getElementById('default-city');
+const contrastToggle = document.getElementById('contrast-toggle');
+const contrastStatus = document.getElementById('contrast-status');
+const radarOpacityEl = document.getElementById('radar-opacity');
+const lightningAgeEl = document.getElementById('lightning-age');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const show = el => el.classList.remove('hidden');
@@ -108,20 +154,17 @@ function formatClock(iso) {
 
 function tempDisplay(v) {
   if (v == null || Number.isNaN(v)) return '--';
-  const n = state.units === 'us' ? v : ((v - 32) * 5) / 9;
-  return Math.round(n);
+  return Math.round(v);
 }
 
 function speedDisplay(v) {
   if (v == null || Number.isNaN(v)) return '--';
-  const n = state.units === 'us' ? v : v * 1.60934;
-  return Math.round(n);
+  return Math.round(v);
 }
 
 function precipDisplay(v) {
   if (v == null || Number.isNaN(v)) return '--';
-  const n = state.units === 'us' ? v : v * 25.4;
-  return n.toFixed(1);
+  return Number(v).toFixed(1);
 }
 
 function visDisplay(vMeters) {
@@ -149,21 +192,90 @@ function updateNotifyButton() {
   if (!('Notification' in window)) {
     notifyBtn.textContent = 'Notifications unsupported';
     notifyBtn.disabled = true;
+    if (pushTestBtn) pushTestBtn.disabled = true;
     return;
   }
   if (!window.isSecureContext) {
     notifyBtn.textContent = 'Needs HTTPS';
     notifyBtn.disabled = true;
+    if (pushTestBtn) pushTestBtn.disabled = true;
     return;
   }
 
   notifyBtn.disabled = false;
   if (Notification.permission === 'granted') {
-    notifyBtn.textContent = 'Notifications enabled';
+    notifyBtn.textContent = state.pushEnabled ? 'Push enabled' : 'Enable push';
   } else if (Notification.permission === 'denied') {
     notifyBtn.textContent = 'Notifications blocked';
   } else {
     notifyBtn.textContent = 'Enable notifications';
+  }
+
+  if (pushTestBtn) {
+    pushTestBtn.disabled = !(Notification.permission === 'granted' && state.pushEnabled);
+  }
+}
+
+function applyHighContrast() {
+  document.body.classList.toggle('high-contrast', state.highContrast);
+  if (contrastStatus) contrastStatus.textContent = state.highContrast ? 'On' : 'Off';
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function ensurePushSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+
+  const keyResp = await fetch('/api/push/public-key').then(r => r.json()).catch(() => null);
+  const publicKey = keyResp?.publicKey;
+  if (!publicKey) return false;
+
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+  }
+
+  await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subscription: sub,
+      location: state.currentCity ? {
+        latitude: state.currentCity.latitude,
+        longitude: state.currentCity.longitude,
+      } : null,
+    }),
+  });
+
+  state.pushEnabled = true;
+  updateNotifyButton();
+  return true;
+}
+
+async function sendTestPush() {
+  const resp = await fetch('/api/push/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: 'Weather push test',
+      body: state.currentCity ? `Alerts enabled for ${cityLabel(state.currentCity) || 'your location'}` : 'Push notifications are active.',
+      url: window.location.pathname,
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error || 'Push test failed');
   }
 }
 
@@ -196,6 +308,8 @@ function cityKey(city) {
 
 function persistSavedCities() {
   localStorage.setItem(STORAGE_KEYS.savedCities, JSON.stringify(state.savedCities));
+  const defaultEntry = state.savedCities.find(e => e.isDefault);
+  localStorage.setItem(STORAGE_KEYS.defaultCity, defaultEntry ? cityKey(defaultEntry.city) : '');
 }
 
 function persistLastCity(city) {
@@ -209,6 +323,46 @@ function getLastCity() {
 
 function cityLabel(city) {
   return [city?.name, city?.admin1, city?.country].filter(Boolean).join(', ');
+}
+
+function formatRelativeTime(ts) {
+  if (!ts) return 'Never opened';
+  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  return `${days}d ago`;
+}
+
+function getDefaultSavedEntry() {
+  return state.savedCities.find(e => e.isDefault) || null;
+}
+
+function updateDefaultCityLabel() {
+  if (!defaultCityEl) return;
+  const def = getDefaultSavedEntry();
+  defaultCityEl.textContent = def?.city?.name || 'None';
+}
+
+function setDefaultCityByKey(key) {
+  state.savedCities = state.savedCities.map(e => ({
+    ...e,
+    isDefault: cityKey(e.city) === key,
+  }));
+  persistSavedCities();
+  updateDefaultCityLabel();
+  renderSavedCities();
+}
+
+function moveSavedCity(index, direction) {
+  const next = index + direction;
+  if (next < 0 || next >= state.savedCities.length) return;
+  const arr = [...state.savedCities];
+  [arr[index], arr[next]] = [arr[next], arr[index]];
+  state.savedCities = arr;
+  persistSavedCities();
+  renderSavedCities();
 }
 
 function updateShareUrl(city) {
@@ -230,10 +384,12 @@ function renderSavedCities() {
   savedLocationsEl.innerHTML = '';
   if (!state.savedCities.length) {
     savedLocationsEl.textContent = 'None yet';
+    updateDefaultCityLabel();
     return;
   }
 
-  state.savedCities.forEach(city => {
+  state.savedCities.forEach((entry, index) => {
+    const city = entry.city;
     const wrap = document.createElement('div');
     wrap.className = 'saved-item';
 
@@ -241,7 +397,35 @@ function renderSavedCities() {
     chip.className = 'saved-chip';
     chip.type = 'button';
     chip.textContent = city.name;
-    chip.addEventListener('click', () => loadAll(city, 'saved-location'));
+    chip.title = `${cityLabel(city)} • ${formatRelativeTime(entry.lastViewedAt)}`;
+    chip.addEventListener('click', () => {
+      entry.lastViewedAt = Date.now();
+      persistSavedCities();
+      loadAll(city, 'saved-location');
+    });
+
+    const defaultBtn = document.createElement('button');
+    defaultBtn.className = 'saved-default';
+    defaultBtn.type = 'button';
+    defaultBtn.title = entry.isDefault ? 'Default city' : 'Set as default city';
+    defaultBtn.textContent = entry.isDefault ? '★' : '☆';
+    defaultBtn.addEventListener('click', () => setDefaultCityByKey(cityKey(city)));
+
+    const upBtn = document.createElement('button');
+    upBtn.className = 'saved-move';
+    upBtn.type = 'button';
+    upBtn.title = 'Move up';
+    upBtn.textContent = '↑';
+    upBtn.disabled = index === 0;
+    upBtn.addEventListener('click', () => moveSavedCity(index, -1));
+
+    const downBtn = document.createElement('button');
+    downBtn.className = 'saved-move';
+    downBtn.type = 'button';
+    downBtn.title = 'Move down';
+    downBtn.textContent = '↓';
+    downBtn.disabled = index === state.savedCities.length - 1;
+    downBtn.addEventListener('click', () => moveSavedCity(index, 1));
 
     const remove = document.createElement('button');
     remove.className = 'saved-remove';
@@ -249,15 +433,25 @@ function renderSavedCities() {
     remove.textContent = 'x';
     remove.addEventListener('click', (e) => {
       e.stopPropagation();
-      state.savedCities = state.savedCities.filter(c => cityKey(c) !== cityKey(city));
+      state.savedCities = state.savedCities.filter(c => cityKey(c.city) !== cityKey(city));
       persistSavedCities();
       renderSavedCities();
     });
 
+    const meta = document.createElement('span');
+    meta.className = 'saved-meta';
+    meta.textContent = formatRelativeTime(entry.lastViewedAt);
+
+    wrap.appendChild(defaultBtn);
     wrap.appendChild(chip);
+    wrap.appendChild(upBtn);
+    wrap.appendChild(downBtn);
     wrap.appendChild(remove);
+    wrap.appendChild(meta);
     savedLocationsEl.appendChild(wrap);
   });
+
+  updateDefaultCityLabel();
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -294,7 +488,7 @@ async function reverseGeocode(lat, lon) {
 }
 
 async function fetchWeather(lat, lon, tz) {
-  const r = await fetch(`/api/weather?lat=${lat}&lon=${lon}&tz=${encodeURIComponent(tz||'auto')}&units=us`);
+  const r = await fetch(`/api/weather?lat=${lat}&lon=${lon}&tz=${encodeURIComponent(tz||'auto')}&units=${encodeURIComponent(state.units)}`);
   if (!r.ok) throw new Error('Weather fetch failed');
   return r.json();
 }
@@ -308,6 +502,13 @@ async function fetchAirQuality(lat, lon, tz) {
 async function fetchAlerts(lat, lon) {
   const r = await fetch(`/api/alerts?lat=${lat}&lon=${lon}`);
   if (!r.ok) throw new Error('Alerts fetch failed');
+  return r.json();
+}
+
+async function fetchLightning(lat, lon) {
+  const ageMin = Number(state.lightningAgeMin || 15);
+  const r = await fetch(`/api/lightning?lat=${lat}&lon=${lon}&age=${ageMin}`);
+  if (!r.ok) throw new Error('Lightning fetch failed');
   return r.json();
 }
 
@@ -528,6 +729,11 @@ function createOverviewMap(mapEl) {
     maxZoom: 18,
   }).addTo(map);
 
+  const radarLayer = L.tileLayer('https://tilecache.rainviewer.com/v2/radar/nowcast_0/256/{z}/{x}/{y}/2/1_1.png', {
+    maxZoom: 15,
+    opacity: Math.max(0.15, Math.min(0.9, state.radarOpacity / 100)),
+  }).addTo(map);
+
   let marker = null;
 
   function panTo(lat, lon, zoom) {
@@ -542,13 +748,20 @@ function createOverviewMap(mapEl) {
     }).addTo(map);
   }
 
-  return { map, panTo };
+  function setRadarOpacity(opacityPct) {
+    const normalized = Math.max(0.15, Math.min(0.9, Number(opacityPct) / 100));
+    radarLayer.setOpacity(normalized);
+  }
+
+  return { map, panTo, setRadarOpacity };
 }
 
-function clearLightningMarkers() {
+function clearLightningLayer() {
   if (!mapsOverview.map) return;
-  state.lightningMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
-  state.lightningMarkers = [];
+  if (state.lightningLayer) {
+    mapsOverview.map.removeLayer(state.lightningLayer);
+    state.lightningLayer = null;
+  }
 }
 
 function clearWindArrows() {
@@ -566,41 +779,81 @@ function refreshMapsOverview() {
 
   mapsOverview.panTo(state.currentCity.latitude, state.currentCity.longitude, 6);
 
-  clearLightningMarkers();
+  clearLightningLayer();
   clearWindArrows();
 
   if (state.showLightning) renderLightningStrikes(state.currentCity);
   if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
 }
 
-function renderLightningStrikes(city) {
+function circleCenter(coords) {
+  let sumLat = 0;
+  let sumLon = 0;
+  let count = 0;
+  coords.forEach(([lon, lat]) => {
+    sumLat += lat;
+    sumLon += lon;
+    count += 1;
+  });
+  if (!count) return null;
+  return [sumLat / count, sumLon / count];
+}
+
+async function renderLightningStrikes(city) {
   if (!mapsOverview.map || !state.showLightning) return;
-  clearLightningMarkers();
+  clearLightningLayer();
 
-  // Simulate lightning strikes in the vicinity of the city (for now, use random placement)
-  // In a production app, you'd fetch from a lightning API like Blitzortung or similar
-  // For demo: always show a few sample strikes so the overlay is visible when enabled.
-  const strokeCount = 3;
+  try {
+    const data = await fetchLightning(city.latitude, city.longitude);
+    const features = data?.features || [];
+    if (!features.length) return;
 
-  for (let i = 0; i < strokeCount; i++) {
-    const angle = (Math.PI * 2 * i) / strokeCount;
-    const radius = 0.18 + i * 0.06;
-    const latOffset = Math.cos(angle) * radius;
-    const lonOffset = Math.sin(angle) * radius;
-    const lat = parseFloat(city.latitude) + latOffset;
-    const lon = parseFloat(city.longitude) + lonOffset;
+    const layers = [];
+    features.forEach((feature) => {
+      const geom = feature?.geometry;
+      const event = feature?.properties?.event || 'Thunderstorm activity';
+      const severity = feature?.properties?.severity || 'Unknown severity';
+      if (!geom) return;
 
-    const marker = L.circleMarker([lat, lon], {
-      radius: 4,
-      fillColor: '#ffeb3b',
-      fillOpacity: 0.8,
-      color: '#ff6f00',
-      weight: 1.5,
-      className: 'lightning-marker',
-    }).bindPopup('Sample lightning overlay');
+      const polygonSets = [];
+      if (geom.type === 'Polygon' && Array.isArray(geom.coordinates?.[0])) {
+        polygonSets.push(geom.coordinates[0]);
+      }
+      if (geom.type === 'MultiPolygon' && Array.isArray(geom.coordinates)) {
+        geom.coordinates.forEach(poly => {
+          if (Array.isArray(poly?.[0])) polygonSets.push(poly[0]);
+        });
+      }
 
-    marker.addTo(mapsOverview.map);
-    state.lightningMarkers.push(marker);
+      polygonSets.forEach((polyCoords, idx) => {
+        const ring = polyCoords.map(([lon, lat]) => [lat, lon]);
+        const poly = L.polygon(ring, {
+          color: '#ff8b1a',
+          weight: 1.5,
+          opacity: 0.8,
+          fillColor: '#ffd34d',
+          fillOpacity: 0.18,
+        }).bindPopup(`${event} • ${severity}`);
+        layers.push(poly);
+
+        const center = circleCenter(polyCoords);
+        if (center) {
+          const strike = L.circleMarker(center, {
+            radius: 5,
+            fillColor: '#ffe066',
+            fillOpacity: 0.95,
+            color: '#ff6f00',
+            weight: 2,
+          }).bindPopup(`${event} area ${idx + 1}`);
+          layers.push(strike);
+        }
+      });
+    });
+
+    if (!layers.length) return;
+    state.lightningLayer = L.layerGroup(layers).addTo(mapsOverview.map);
+  } catch (e) {
+    console.warn('Lightning overlay unavailable', e);
   }
 }
 
@@ -691,6 +944,27 @@ function renderDailyForecast(daily) {
   }
 }
 
+function summarizeHourly(hourly, startIdx) {
+  if (!hourly?.time?.length || !hourly?.precipitation_probability?.length) {
+    return 'Hourly details unavailable.';
+  }
+
+  let rainIdx = -1;
+  for (let i = startIdx; i < Math.min(startIdx + 24, hourly.time.length); i++) {
+    const pp = Number(hourly.precipitation_probability[i] || 0);
+    const rain = Number(hourly.rain?.[i] || 0);
+    if (pp >= 45 || rain > 0.1) {
+      rainIdx = i;
+      break;
+    }
+  }
+
+  if (rainIdx === -1) {
+    return 'No notable rain expected in the next 24 hours.';
+  }
+  return `Rain likely around ${formatHour(hourly.time[rainIdx])}.`;
+}
+
 function renderWeather(data, city) {
   const c = data.current;
   const h = data.hourly;
@@ -742,9 +1016,14 @@ function renderWeather(data, city) {
       <div class="hour-time">${i === startIdx ? 'Now' : formatHour(h.time[i])}</div>
       <div class="hour-icon">${hw.icon}</div>
       <div class="hour-temp">${tempDisplay(h.temperature_2m[i])}°</div>
+      <div class="hour-feels">Feels ${tempDisplay(h.apparent_temperature?.[i])}°</div>
       <div class="hour-precip">${pp > 0 ? `${pp}% ${ptype}` : ptype}</div>
     `;
     track.appendChild(cell);
+  }
+
+  if (hourlySummaryEl) {
+    hourlySummaryEl.textContent = summarizeHourly(h, startIdx);
   }
 
   renderDailyForecast(d);
@@ -814,6 +1093,14 @@ function renderAlerts(data) {
 async function loadAll(city, source) {
   state.currentCity = city;
   if (source) state.currentSource = source;
+
+  const saved = state.savedCities.find(e => cityKey(e.city) === cityKey(city));
+  if (saved) {
+    saved.lastViewedAt = Date.now();
+    persistSavedCities();
+    renderSavedCities();
+  }
+
   clearErr();
   hide(suggestEl);
   hide(weatherDiv);
@@ -974,8 +1261,13 @@ shareBtn.addEventListener('click', async () => {
 saveCurrentBtn.addEventListener('click', () => {
   if (!state.currentCity) return;
   const key = cityKey(state.currentCity);
-  if (state.savedCities.some(c => cityKey(c) === key)) return;
-  state.savedCities.push(state.currentCity);
+  if (state.savedCities.some(c => cityKey(c.city) === key)) return;
+  state.savedCities.push({
+    city: state.currentCity,
+    addedAt: Date.now(),
+    lastViewedAt: Date.now(),
+    isDefault: state.savedCities.length === 0,
+  });
   persistSavedCities();
   renderSavedCities();
 });
@@ -993,9 +1285,11 @@ notifyBtn.addEventListener('click', async () => {
 
   try {
     const permission = await Notification.requestPermission();
-    updateNotifyButton();
     if (permission === 'granted') {
-      // Re-fetch current alerts immediately so permission change can trigger notifications.
+      const subscribed = await ensurePushSubscription();
+      if (!subscribed) {
+        showErr('Push needs VAPID keys configured on server.');
+      }
       if (state.currentCity) {
         const alerts = await fetchAlerts(state.currentCity.latitude, state.currentCity.longitude).catch(() => ({ features: [] }));
         renderAlerts(alerts);
@@ -1005,6 +1299,7 @@ notifyBtn.addEventListener('click', async () => {
     }
   } catch {
     showErr('Could not request notification permission.');
+  } finally {
     updateNotifyButton();
   }
 });
@@ -1019,7 +1314,7 @@ lightningToggle.addEventListener('change', () => {
   localStorage.setItem(STORAGE_KEYS.showLightning, String(state.showLightning));
   lightningStatus.textContent = state.showLightning ? 'On' : 'Off';
   if (state.currentCity && mapsOverview.map) {
-    clearLightningMarkers();
+    clearLightningLayer();
     if (state.showLightning) renderLightningStrikes(state.currentCity);
   }
 });
@@ -1039,6 +1334,44 @@ if (dailyForecastToggle) {
     if (!state.currentWeather?.daily) return;
     state.dailyExpanded = !state.dailyExpanded;
     renderDailyForecast(state.currentWeather.daily);
+  });
+}
+
+if (contrastToggle) {
+  contrastToggle.addEventListener('change', () => {
+    state.highContrast = contrastToggle.checked;
+    localStorage.setItem(STORAGE_KEYS.highContrast, String(state.highContrast));
+    applyHighContrast();
+  });
+}
+
+if (radarOpacityEl) {
+  radarOpacityEl.addEventListener('input', () => {
+    state.radarOpacity = Number(radarOpacityEl.value || 65);
+    localStorage.setItem(STORAGE_KEYS.radarOpacity, String(state.radarOpacity));
+    mapsOverview.setRadarOpacity(state.radarOpacity);
+  });
+}
+
+if (lightningAgeEl) {
+  lightningAgeEl.addEventListener('change', () => {
+    state.lightningAgeMin = Number(lightningAgeEl.value || 15);
+    localStorage.setItem(STORAGE_KEYS.lightningAgeMin, String(state.lightningAgeMin));
+    if (state.showLightning && state.currentCity) {
+      renderLightningStrikes(state.currentCity);
+    }
+  });
+}
+
+if (pushTestBtn) {
+  pushTestBtn.addEventListener('click', async () => {
+    try {
+      await sendTestPush();
+      pushTestBtn.textContent = 'Push sent';
+      setTimeout(() => { pushTestBtn.textContent = 'Send test push'; }, 1500);
+    } catch (e) {
+      showErr(e.message || 'Push test failed.');
+    }
   });
 }
 
@@ -1063,15 +1396,32 @@ function startAutoRefresh() {
   updateUnitsButton();
   updateNotifyButton();
   syncAutoDetectToggle();
-  
-  // Sync lightning and wind toggle states
+
+  // Sync lightning/wind and UI polish toggles.
   lightningToggle.checked = state.showLightning;
   lightningStatus.textContent = state.showLightning ? 'On' : 'Off';
   windToggle.checked = state.showWind;
   windStatus.textContent = state.showWind ? 'On' : 'Off';
-  
+  if (contrastToggle) contrastToggle.checked = state.highContrast;
+  if (lightningAgeEl) lightningAgeEl.value = String(state.lightningAgeMin || 15);
+  if (radarOpacityEl) radarOpacityEl.value = String(state.radarOpacity || 65);
+  applyHighContrast();
+  mapsOverview.setRadarOpacity(state.radarOpacity);
+
   renderSavedCities();
   startAutoRefresh();
+
+  // Restore push state if already subscribed.
+  if ('serviceWorker' in navigator && 'PushManager' in window) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const existingSub = await reg.pushManager.getSubscription();
+      state.pushEnabled = Boolean(existingSub);
+    } catch {
+      state.pushEnabled = false;
+    }
+    updateNotifyButton();
+  }
 
   const qs = new URLSearchParams(window.location.search);
   const qLat = Number(qs.get('lat'));
@@ -1094,6 +1444,13 @@ function startAutoRefresh() {
   if (state.autoDetect) {
     const autoLocated = await autoLocateAndLoad();
     if (autoLocated) return;
+  }
+
+  const defaultSaved = getDefaultSavedEntry();
+  if (defaultSaved?.city) {
+    searchInput.value = defaultSaved.city.name;
+    await loadAll(defaultSaved.city, 'default-saved-city');
+    return;
   }
 
   const lastCity = getLastCity();

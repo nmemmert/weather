@@ -168,11 +168,16 @@ a:hover { text-decoration: underline; }
 }
 
 .saved-locations {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 0.35rem;
   font-size: 0.72rem;
   color: var(--ink-mid);
+}
+
+.saved-help {
+  font-size: 0.62rem;
+  color: var(--ink-light);
+  margin-bottom: 0.45rem;
 }
 
 .auto-detect-toggle {
@@ -210,13 +215,17 @@ a:hover { text-decoration: underline; }
 }
 
 .saved-item {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 28px 1fr 28px 28px 28px auto;
+  align-items: center;
   border: 1px solid var(--border);
   background: var(--paper-dark);
 }
 
 .saved-chip,
-.saved-remove {
+.saved-remove,
+.saved-default,
+.saved-move {
   border: none;
   background: transparent;
   color: var(--ink);
@@ -225,8 +234,25 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
 }
 
-.saved-remove {
+.saved-chip {
+  text-align: left;
   border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.saved-default { color: var(--accent); }
+
+.saved-move { border-right: 1px solid var(--border); }
+.saved-move:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.saved-remove {
+  border-right: 1px solid var(--border);
+  color: var(--ink-light);
+}
+
+.saved-meta {
+  padding: 0 0.55rem;
+  font-size: 0.6rem;
   color: var(--ink-light);
 }
 
@@ -440,6 +466,33 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--border);
 }
 
+.maps-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.maps-control {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.66rem;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.maps-control input,
+.maps-control select {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  padding: 0.35rem 0.45rem;
+}
+
 .maps-meta {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -457,6 +510,22 @@ a:hover { text-decoration: underline; }
 .maps-value {
   font-size: 0.85rem;
   color: var(--ink);
+}
+
+.wind-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.62rem;
+  color: var(--ink-light);
+  margin-top: 0.6rem;
+}
+
+.wind-legend-scale {
+  width: 120px;
+  height: 8px;
+  border: 1px solid var(--border);
+  background: linear-gradient(to right, #d2f0ff, #84ccff, #3f9fff, #1879df);
 }
 
 .stat { background: var(--paper-dark); padding: 0.9rem 0.75rem; text-align: center; }
@@ -607,6 +676,12 @@ a:hover { text-decoration: underline; }
 
 .hourly-track { display: flex; min-width: max-content; }
 
+.hourly-summary {
+  font-size: 0.68rem;
+  color: var(--ink-mid);
+  margin-bottom: 0.45rem;
+}
+
 .hour-cell {
   min-width: 72px;
   padding: 0.75rem 0.5rem;
@@ -623,6 +698,7 @@ a:hover { text-decoration: underline; }
 .hour-time { font-size: 0.6rem; color: var(--ink-light); letter-spacing: 0.06em; margin-bottom: 0.35rem; text-transform: uppercase; }
 .hour-icon { font-size: 1.4rem; margin-bottom: 0.3rem; }
 .hour-temp { font-size: 0.88rem; font-weight: 500; }
+.hour-feels { font-size: 0.56rem; color: var(--ink-mid); margin-top: 0.15rem; }
 .hour-precip { font-size: 0.6rem; color: var(--cool); margin-top: 0.2rem; }
 
 /* ── Daily forecast ── */
@@ -707,6 +783,26 @@ a:hover { text-decoration: underline; }
   border-color: var(--border) !important;
 }
 
+/* UI polish: strong contrast toggle */
+body.high-contrast {
+  --ink: #0a0a0a;
+  --ink-mid: #1f1f1f;
+  --ink-light: #3b3b3b;
+  --paper: #ffffff;
+  --paper-dark: #f2f2f2;
+  --paper-darker: #e8e8e8;
+  --border: #111111;
+  --accent: #a43600;
+  --cool: #005f8a;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ── Responsive ── */
 @media (max-width: 640px) {
   .app { padding: 1.25rem 1rem max(3rem, calc(1.5rem + env(safe-area-inset-bottom, 0px))); }
@@ -729,5 +825,8 @@ a:hover { text-decoration: underline; }
   .settings-row { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
   .settings-value { text-align: left; }
   .map-overview { height: 280px; }
+  .maps-controls,
   .maps-meta { grid-template-columns: 1fr; }
+  .saved-item { grid-template-columns: 28px 1fr 28px 28px 28px; }
+  .saved-meta { display: none; }
 }

@@ -1,10 +1,80 @@
 const express = require('express');
 const path = require('path');
+const webpush = require('web-push');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(express.json({ limit: '256kb' }));
+
+// Lightweight request logging for observability.
+app.use((req, res, next) => {
+  const started = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - started;
+    console.log(`${new Date().toISOString()} ${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`);
+  });
+  next();
+});
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchJsonWithRetry(url, options = {}, attempts = 3, initialDelayMs = 300) {
+  let lastErr = null;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const r = await fetch(url, options);
+      if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        throw new Error(`Upstream status ${r.status}${text ? `: ${text.slice(0, 200)}` : ''}`);
+      }
+      return await r.json();
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) {
+        await sleep(initialDelayMs * Math.pow(2, i));
+      }
+    }
+  }
+  throw lastErr || new Error('Unknown upstream fetch error');
+}
+
+const subscriptions = new Map();
+
+function getVapidConfig() {
+  const publicKey = process.env.VAPID_PUBLIC_KEY || '';
+  const privateKey = process.env.VAPID_PRIVATE_KEY || '';
+  const subject = process.env.VAPID_SUBJECT || 'mailto:nate@necloud.us';
+  return { publicKey, privateKey, subject };
+}
+
+function pushConfigured() {
+  const cfg = getVapidConfig();
+  return Boolean(cfg.publicKey && cfg.privateKey);
+}
+
+function ensurePushConfigured() {
+  const cfg = getVapidConfig();
+  if (!cfg.publicKey || !cfg.privateKey) {
+    return false;
+  }
+  webpush.setVapidDetails(cfg.subject, cfg.publicKey, cfg.privateKey);
+  return true;
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/healthz', (_req, res) => {
+  res.json({
+    ok: true,
+    uptimeSec: Math.round(process.uptime()),
+    pushConfigured: pushConfigured(),
+    subscriptionCount: subscriptions.size,
+    now: new Date().toISOString(),
+  });
+});
 
 // Geocoding proxy
 app.get('/api/geocode', async (req, res) => {
@@ -12,8 +82,7 @@ app.get('/api/geocode', async (req, res) => {
   if (!q) return res.status(400).json({ error: 'Missing query' });
   try {
     const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=en&format=json`;
-    const r = await fetch(url);
-    const data = await r.json();
+    const data = await fetchJsonWithRetry(url);
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: 'Geocoding failed', detail: e.message });
@@ -35,9 +104,8 @@ app.get('/api/reverse-geocode', async (req, res) => {
       format: 'json',
     });
 
-    const omResp = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?${omParams}`);
-    if (omResp.ok) {
-      const omData = await omResp.json();
+    const omData = await fetchJsonWithRetry(`https://geocoding-api.open-meteo.com/v1/reverse?${omParams}`, {}, 2, 200).catch(() => null);
+    if (omData) {
       const top = omData?.results?.[0];
       if (top) {
         return res.json({
@@ -60,18 +128,13 @@ app.get('/api/reverse-geocode', async (req, res) => {
       addressdetails: '1',
     });
 
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?${params}`, {
+    const data = await fetchJsonWithRetry(`https://nominatim.openstreetmap.org/reverse?${params}`, {
       headers: {
         'User-Agent': 'weather-app-v2 (nate@necloud.us)',
         Accept: 'application/json',
       },
     });
 
-    if (!r.ok) {
-      throw new Error(`Reverse geocoding failed with status ${r.status}`);
-    }
-
-    const data = await r.json();
     const address = data.address || {};
     const name = address.city || address.town || address.village || address.hamlet || address.municipality || address.county || address.state || data.name || 'Detected location';
 
@@ -117,8 +180,7 @@ app.get('/api/weather', async (req, res) => {
       temperature_unit: useMetric ? 'celsius' : 'fahrenheit',
       precipitation_unit: useMetric ? 'mm' : 'inch'
     });
-    const r = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
-    const data = await r.json();
+    const data = await fetchJsonWithRetry(`https://api.open-meteo.com/v1/forecast?${params}`);
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: 'Weather fetch failed', detail: e.message });
@@ -137,8 +199,7 @@ app.get('/api/air-quality', async (req, res) => {
       current: ['us_aqi', 'pm2_5', 'alder_pollen', 'birch_pollen', 'grass_pollen', 'mugwort_pollen', 'olive_pollen', 'ragweed_pollen'].join(','),
       forecast_days: 1,
     });
-    const r = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?${params}`);
-    const data = await r.json();
+    const data = await fetchJsonWithRetry(`https://air-quality-api.open-meteo.com/v1/air-quality?${params}`);
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: 'Air quality fetch failed', detail: e.message });
@@ -150,24 +211,123 @@ app.get('/api/alerts', async (req, res) => {
   const { lat, lon } = req.query;
   if (!lat || !lon) return res.status(400).json({ error: 'Missing lat/lon' });
   try {
-    const r = await fetch(`https://api.weather.gov/alerts/active?point=${lat},${lon}`, {
+    const data = await fetchJsonWithRetry(`https://api.weather.gov/alerts/active?point=${lat},${lon}`, {
       headers: {
         'User-Agent': 'weather-app-v2 (nate@necloud.us)',
         Accept: 'application/geo+json',
       },
     });
-    const data = await r.json();
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: 'Alerts fetch failed', detail: e.message });
   }
 });
 
+// Lightning activity from active weather.gov thunderstorm alerts (real alert geometries).
+app.get('/api/lightning', async (req, res) => {
+  const { lat, lon, age } = req.query;
+  if (!lat || !lon) return res.status(400).json({ error: 'Missing lat/lon' });
+  const ageMinutes = Number(age || 15);
+
+  try {
+    const data = await fetchJsonWithRetry(`https://api.weather.gov/alerts/active?point=${lat},${lon}`, {
+      headers: {
+        'User-Agent': 'weather-app-v2 (nate@necloud.us)',
+        Accept: 'application/geo+json',
+      },
+    });
+
+    const cutoff = Date.now() - (Number.isFinite(ageMinutes) ? ageMinutes : 15) * 60 * 1000;
+    const features = (data?.features || []).filter(f => {
+      const p = f?.properties || {};
+      const event = String(p.event || '').toLowerCase();
+      const relevant = event.includes('thunderstorm') || event.includes('lightning');
+      if (!relevant) return false;
+      const ts = Date.parse(p.sent || p.onset || p.effective || '');
+      if (Number.isNaN(ts)) return true;
+      return ts >= cutoff;
+    });
+
+    res.json({
+      source: 'weather.gov alerts',
+      count: features.length,
+      features,
+      ageMinutes: Number.isFinite(ageMinutes) ? ageMinutes : 15,
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Lightning fetch failed', detail: e.message });
+  }
+});
+
+app.get('/api/push/public-key', (_req, res) => {
+  const { publicKey } = getVapidConfig();
+  res.json({
+    enabled: pushConfigured(),
+    publicKey: publicKey || null,
+  });
+});
+
+app.post('/api/push/subscribe', (req, res) => {
+  const { subscription, location } = req.body || {};
+  if (!subscription?.endpoint) {
+    return res.status(400).json({ error: 'Missing subscription endpoint' });
+  }
+  subscriptions.set(subscription.endpoint, {
+    subscription,
+    location: location || null,
+    createdAt: Date.now(),
+  });
+  res.json({ ok: true, count: subscriptions.size });
+});
+
+app.post('/api/push/unsubscribe', (req, res) => {
+  const { endpoint } = req.body || {};
+  if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
+  subscriptions.delete(endpoint);
+  res.json({ ok: true, count: subscriptions.size });
+});
+
+app.post('/api/push/test', async (req, res) => {
+  if (!ensurePushConfigured()) {
+    return res.status(400).json({
+      error: 'Push is not configured. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.',
+    });
+  }
+
+  const payload = JSON.stringify({
+    title: req.body?.title || 'Weather test notification',
+    body: req.body?.body || 'Push notifications are working.',
+    url: req.body?.url || '/',
+    ts: Date.now(),
+  });
+
+  let sent = 0;
+  let removed = 0;
+  const errors = [];
+
+  const entries = Array.from(subscriptions.values());
+  for (const entry of entries) {
+    try {
+      await webpush.sendNotification(entry.subscription, payload);
+      sent++;
+    } catch (e) {
+      const statusCode = e?.statusCode;
+      if (statusCode === 404 || statusCode === 410) {
+        subscriptions.delete(entry.subscription.endpoint);
+        removed++;
+      } else {
+        errors.push(String(e.message || e));
+      }
+    }
+  }
+
+  res.json({ ok: true, sent, removed, errors, count: subscriptions.size });
+});
+
 // RainViewer timestamps proxy
 app.get('/api/radar/times', async (req, res) => {
   try {
-    const r = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-    const data = await r.json();
+    const data = await fetchJsonWithRetry('https://api.rainviewer.com/public/weather-maps.json');
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: 'Radar times failed', detail: e.message });

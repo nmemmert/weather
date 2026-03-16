@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'weather-v1';
+const CACHE = 'weather-v2';
 
 // App shell — cached on install for offline use
 const PRECACHE = [
@@ -61,6 +61,41 @@ self.addEventListener('fetch', event => {
         }
         return response;
       });
+    })
+  );
+});
+
+self.addEventListener('push', event => {
+  let payload = { title: 'Weather alert', body: 'New weather update available.', url: '/' };
+  try {
+    const data = event.data ? event.data.json() : null;
+    if (data) payload = { ...payload, ...data };
+  } catch {
+    // Ignore malformed payload and use defaults.
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: '/icons/icon.svg',
+      badge: '/icons/icon.svg',
+      data: { url: payload.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target = event.notification?.data?.url || '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+      const existing = windowClients.find(c => c.url.includes(self.location.origin));
+      if (existing) {
+        existing.focus();
+        existing.navigate(target);
+        return;
+      }
+      return clients.openWindow(target);
     })
   );
 });

@@ -122,6 +122,7 @@
         <span class="section-label">Hourly Forecast</span>
         <span class="section-note">next 24 hours</span>
       </div>
+      <p id="hourly-summary" class="hourly-summary">--</p>
       <div id="hourly-scroll" class="hourly-scroll">
         <div id="hourly-track" class="hourly-track"></div>
       </div>
@@ -166,6 +167,20 @@
   <div id="tab-maps" class="tab-panel hidden">
     <div class="maps-wrap">
       <div id="map-overview" class="radar-map map-overview"></div>
+      <div class="maps-controls">
+        <label class="maps-control">
+          <span>Radar opacity</span>
+          <input id="radar-opacity" type="range" min="15" max="90" step="5" value="65">
+        </label>
+        <label class="maps-control">
+          <span>Lightning age</span>
+          <select id="lightning-age">
+            <option value="5">Last 5m</option>
+            <option value="15" selected>Last 15m</option>
+            <option value="30">Last 30m</option>
+          </select>
+        </label>
+      </div>
       <div class="maps-meta">
         <div class="maps-card">
           <div class="stat-label">Data Source Location</div>
@@ -176,7 +191,11 @@
           <div id="maps-wind" class="maps-value">--</div>
         </div>
       </div>
-      <p class="panel-note">Toggle lightning strikes and wind overlay in Settings.</p>
+      <div class="wind-legend" aria-hidden="true">
+        <span>Wind legend</span>
+        <div class="wind-legend-scale"><i></i></div>
+      </div>
+      <p class="panel-note">Toggle lightning strikes and wind overlay in Settings. Lightning overlay uses active thunderstorm alert geometry.</p>
     </div>
   </div>
 
@@ -185,7 +204,10 @@
     <div id="alerts-wrap" class="alerts-wrap hidden">
       <div class="section-head">
         <span class="section-label">Weather Alerts</span>
-        <button id="notify-btn" class="link-btn" type="button">Enable notifications</button>
+        <span>
+          <button id="notify-btn" class="link-btn" type="button">Enable notifications</button>
+          <button id="push-test-btn" class="link-btn" type="button">Send test push</button>
+        </span>
       </div>
       <div id="alerts-list" class="alerts-list"></div>
     </div>
@@ -200,6 +222,7 @@
           <span>Saved locations</span>
           <button id="save-current-btn" class="link-btn" type="button">Save current</button>
         </div>
+        <p class="saved-help">Use star for default, arrows to reorder.</p>
         <div id="saved-locations" class="saved-locations"></div>
       </div>
 
@@ -214,6 +237,11 @@
       <div class="settings-row">
         <span class="settings-label">Data source location</span>
         <span id="settings-location" class="settings-value">--</span>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label">Default city</span>
+        <span id="default-city" class="settings-value">None</span>
       </div>
 
       <div class="settings-row">
@@ -234,6 +262,14 @@
         <label class="toggle-label" for="wind-toggle">
           <input id="wind-toggle" type="checkbox">
           <span id="wind-status">Off</span>
+        </label>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label">High contrast mode</span>
+        <label class="toggle-label" for="contrast-toggle">
+          <input id="contrast-toggle" type="checkbox">
+          <span id="contrast-status">Off</span>
         </label>
       </div>
     </div>
