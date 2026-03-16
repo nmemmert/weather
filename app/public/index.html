@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="Weather">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -22,13 +22,6 @@
 
   <header class="masthead">
     <h1>Weather</h1>
-    <nav class="tabs">
-      <button class="tab active" data-tab="conditions">Conditions</button>
-      <button class="tab" data-tab="radar-full">Radar</button>
-      <button class="tab" data-tab="maps">Maps</button>
-      <button class="tab" data-tab="alerts">Alerts</button>
-      <button class="tab" data-tab="settings">Settings</button>
-    </nav>
     <span class="tagline">Open-Meteo · RainViewer</span>
   </header>
 
@@ -274,6 +267,29 @@
       </div>
     </div>
   </div>
+
+  <nav class="tabs" aria-label="Primary navigation">
+    <button class="tab active" data-tab="conditions" aria-label="Conditions">
+      <span class="tab-icon" aria-hidden="true">🌤</span>
+      <span class="tab-text">Now</span>
+    </button>
+    <button class="tab" data-tab="radar-full" aria-label="Radar">
+      <span class="tab-icon" aria-hidden="true">🛰</span>
+      <span class="tab-text">Radar</span>
+    </button>
+    <button class="tab" data-tab="maps" aria-label="Maps">
+      <span class="tab-icon" aria-hidden="true">🗺</span>
+      <span class="tab-text">Maps</span>
+    </button>
+    <button class="tab" data-tab="alerts" aria-label="Alerts">
+      <span class="tab-icon" aria-hidden="true">⚠️</span>
+      <span class="tab-text">Alerts</span>
+    </button>
+    <button class="tab" data-tab="settings" aria-label="Settings">
+      <span class="tab-icon" aria-hidden="true">⚙️</span>
+      <span class="tab-text">Settings</span>
+    </button>
+  </nav>
 
 </div><!-- .app -->
 
