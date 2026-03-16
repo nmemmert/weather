@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'weather-v2';
+const CACHE = 'weather-v3';
 
 // App shell — cached on install for offline use
 const PRECACHE = [
@@ -42,6 +42,28 @@ self.addEventListener('fetch', event => {
     url.hostname.includes('cartodb') ||
     url.hostname.includes('basemaps')
   ) {
+    return;
+  }
+
+  const isAppShellRequest =
+    request.mode === 'navigate' ||
+    request.destination === 'document' ||
+    request.destination === 'script' ||
+    request.destination === 'style';
+
+  // Prefer fresh app shell assets so UI updates are visible immediately.
+  if (isAppShellRequest) {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE).then(cache => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then(cached => cached || caches.match('/')))
+    );
     return;
   }
 
