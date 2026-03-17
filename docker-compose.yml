@@ -1,6 +1,8 @@
 services:
   weather:
-    image: ghcr.io/nmemmert/weather:latest
+    build:
+      context: ./app
+      dockerfile: Dockerfile
     container_name: weather-app
     restart: unless-stopped
     ports:

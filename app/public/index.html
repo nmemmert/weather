@@ -5,24 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>NeCloud Weather</title>
 <link rel="manifest" href="/manifest.json">
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" href="/icons/icon.svg">
 <meta name="theme-color" content="#f5f2ec" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#191510" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="NeCloud Weather">
 <meta name="mobile-web-app-capable" content="yes">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="app">
 
   <header class="masthead">
     <h1>NeCloud Weather</h1>
+    <nav class="tabs">
+      <button class="tab active" data-tab="conditions">Conditions</button>
+      <button class="tab" data-tab="unified-map">Map</button>
+      <button class="tab" data-tab="alerts">Alerts</button>
+      <button class="tab" data-tab="learn">Learn</button>
+      <button class="tab" data-tab="settings">Settings</button>
+    </nav>
     <span class="tagline">Open-Meteo · RainViewer</span>
   </header>
 
@@ -40,7 +44,13 @@
 
   <!-- Loading -->
   <div id="loading" class="loading hidden">
-    <span class="loading-dot"></span>Fetching weather data…
+    <div class="loading-container">
+      <div class="loading-icon">🌤️</div>
+      <div class="loading-text">Fetching weather data…</div>
+      <div class="loading-dots">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
   </div>
 
   <!-- ── TAB: CONDITIONS ── -->
@@ -58,47 +68,134 @@
         </div>
       </div>
 
-      <!-- Current hero -->
-      <div class="current-grid">
-        <div class="current-temp">
-          <div class="temp-big"><span id="cur-temp">--</span><span class="deg">°F</span></div>
+      <!-- ── HERO ── -->
+      <div class="hero">
+        <div class="hero-left">
+          <div id="cur-icon" class="hero-icon"></div>
+          <div id="cur-desc" class="hero-desc"></div>
+          <div id="cur-precip" class="hero-sub"></div>
+        </div>
+        <div class="hero-center">
+          <div class="hero-temp"><span id="cur-temp">--</span><span class="deg">°F</span></div>
           <div class="feels">Feels like <span id="cur-feels">--</span>°F</div>
-          <div class="hi-lo">↑<span id="cur-hi">--</span>° · ↓<span id="cur-lo">--</span>°</div>
+          <button id="share-hero-btn" class="hero-share-btn" type="button">Share hero card</button>
+          <p id="share-hero-status" class="hero-share-status hidden"></p>
         </div>
-        <div class="current-cond">
-          <div id="cur-icon" class="cond-icon"></div>
-          <div id="cur-desc" class="cond-desc"></div>
-          <div id="cur-precip" class="cond-sub"></div>
+        <div class="hero-right">
+          <div class="hero-hilo">
+            <div class="hilo-item">
+              <span class="hilo-arrow">↑</span>
+              <span id="cur-hi">--</span>°
+              <div class="hilo-label">High</div>
+            </div>
+            <div class="hilo-divider"></div>
+            <div class="hilo-item">
+              <span class="hilo-arrow">↓</span>
+              <span id="cur-lo">--</span>°
+              <div class="hilo-label">Low</div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Stats -->
-      <div class="stats-bar">
-        <div class="stat"><div class="stat-label">Humidity</div><div class="stat-val"><span id="cur-hum">--</span><span class="unit">%</span></div></div>
-        <div class="stat"><div class="stat-label">Wind</div><div class="stat-val"><span id="cur-wind">--</span><span class="unit">mph</span></div></div>
-        <div class="stat"><div class="stat-label">Pressure</div><div class="stat-val"><span id="cur-pres">--</span><span class="unit">hPa</span></div></div>
-        <div class="stat"><div class="stat-label">Visibility</div><div class="stat-val"><span id="cur-vis">--</span><span class="unit">mi</span></div></div>
-        <div class="stat"><div class="stat-label">UV Index</div><div class="stat-val"><span id="cur-uv">--</span></div></div>
-        <div class="stat"><div class="stat-label">Cloud Cover</div><div class="stat-val"><span id="cur-cloud">--</span><span class="unit">%</span></div></div>
+      <!-- ── SUN & MOON TIMELINE ── -->
+      <div class="sun-section">
+        <div class="sun-timeline-wrap">
+          <div class="sun-endpoint">
+            <span class="sun-ep-icon">🌅</span>
+            <span id="sunrise-val" class="sun-ep-time">--</span>
+          </div>
+          <div class="sun-track-wrap">
+            <div class="sun-track">
+              <div class="sun-progress" id="sun-progress"></div>
+              <div class="sun-dot" id="sun-dot">☀️</div>
+            </div>
+          </div>
+          <div class="sun-endpoint">
+            <span class="sun-ep-icon">🌇</span>
+            <span id="sunset-val" class="sun-ep-time">--</span>
+          </div>
+        </div>
+        <div class="moon-row">
+          <span class="moon-emoji">🌙</span>
+          <span id="moon-phase-val">--</span>
+          <span class="daylight-info" id="daylight-info">--</span>
+        </div>
       </div>
 
-      <div class="astro-grid">
-        <div class="astro-card"><div class="stat-label">Sunrise</div><div id="sunrise-val" class="astro-val">--</div></div>
-        <div class="astro-card"><div class="stat-label">Sunset</div><div id="sunset-val" class="astro-val">--</div></div>
-        <div class="astro-card"><div class="stat-label">Moon Phase</div><div id="moon-phase-val" class="astro-val">--</div></div>
+      <!-- ── WIND & ATMOSPHERE ── -->
+      <div class="section-head">
+        <span class="section-label">Wind &amp; Atmosphere</span>
+      </div>
+      <div class="card-group">
+        <div class="stat-card">
+          <div class="stat-label">Wind</div>
+          <div class="stat-val"><span id="cur-wind">--</span> <span class="stat-unit wind-unit">mph</span></div>
+          <div class="stat-sub" id="cur-wind-dir">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Gusts</div>
+          <div class="stat-val"><span id="cur-gust">--</span> <span class="stat-unit gust-unit">mph</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Humidity</div>
+          <div class="stat-val"><span id="cur-hum">--</span><span class="stat-unit">%</span></div>
+          <div class="stat-sub" id="hum-feel"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Dewpoint</div>
+          <div class="stat-val"><span id="cur-dew">--</span>°</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Pressure</div>
+          <div class="stat-val"><span id="cur-pres">--</span> <span class="stat-unit">hPa</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Visibility</div>
+          <div class="stat-val"><span id="cur-vis">--</span> <span class="stat-unit vis-unit">mi</span></div>
+        </div>
       </div>
 
-      <div class="aq-grid">
-        <div class="aq-card"><div class="stat-label">US AQI</div><div id="aqi-us" class="aq-val">--</div></div>
-        <div class="aq-card"><div class="stat-label">PM2.5</div><div id="pm25" class="aq-val">--</div></div>
-        <div class="aq-card"><div class="stat-label">Pollen</div><div id="pollen" class="aq-val">--</div></div>
+      <!-- ── MORE DETAILS DRAWER ── -->
+      <details class="details-drawer">
+        <summary class="drawer-summary">More Details <span class="drawer-chevron">›</span></summary>
+        <div class="drawer-body">
+          <div class="card-group drawer-card-group">
+            <div class="stat-card">
+              <div class="stat-label">UV Index</div>
+              <div class="stat-val"><span id="cur-uv">--</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Cloud Cover</div>
+              <div class="stat-val"><span id="cur-cloud">--</span><span class="stat-unit">%</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">US AQI</div>
+              <div class="stat-val"><span id="aqi-us">--</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">PM2.5</div>
+              <div class="stat-val"><span id="pm25">--</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Pollen</div>
+              <div class="stat-val"><span id="pollen">--</span></div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- ── WHAT TO BRING ── -->
+      <div class="section-head" style="margin-top:1.5rem">
+        <span class="section-label">What to Bring</span>
       </div>
+      <div id="recommendations" class="recs-grid"></div>
 
       <!-- Embedded radar panel -->
       <div class="section-head">
         <span class="section-label">Radar</span>
         <span class="section-note">
-          <button class="link-btn" id="open-radar-tab">Open full radar →</button>
+          <button class="link-btn" id="open-map-tab">Open full map →</button>
         </span>
       </div>
       <div class="radar-embed-wrap">
@@ -116,7 +213,6 @@
         <span class="section-label">Hourly Forecast</span>
         <span class="section-note">next 24 hours</span>
       </div>
-      <p id="hourly-summary" class="hourly-summary">--</p>
       <div id="hourly-scroll" class="hourly-scroll">
         <div id="hourly-track" class="hourly-track"></div>
       </div>
@@ -124,9 +220,7 @@
       <!-- 7-day -->
       <div class="section-head">
         <span id="daily-forecast-label" class="section-label">7-Day Forecast</span>
-        <span class="section-note">
-          <button id="daily-forecast-toggle" class="link-btn hidden" type="button">Show full forecast</button>
-        </span>
+        <button id="daily-toggle-btn" class="link-btn" type="button">Show 16-day</button>
       </div>
       <div id="daily-list" class="daily-list"></div>
 
@@ -138,64 +232,138 @@
     </div>
   </div>
 
-  <!-- ── TAB: FULL RADAR ── -->
-  <div id="tab-radar-full" class="tab-panel hidden">
-    <div class="radar-full-wrap">
-      <div id="radar-full" class="radar-map radar-map-full"></div>
-      <div class="radar-controls radar-controls-full">
-        <button id="full-play" class="radar-btn play-btn" title="Play/Pause">▶</button>
-        <button id="full-layer" class="radar-btn layer-btn" title="Toggle radar/satellite">R</button>
-        <div class="radar-timeline" id="full-timeline"></div>
-        <span id="full-timestamp" class="radar-ts">--</span>
+  <!-- ── TAB: UNIFIED MAP ── -->
+  <div id="tab-unified-map" class="tab-panel hidden">
+    <div class="unified-map-wrap">
+      <!-- Map Controls -->
+      <div class="map-controls-header">
+        <div class="map-controls-row">
+          <label for="base-map-select" class="control-label">Base Map:</label>
+          <select id="base-map-select" class="map-select">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="satellite">Satellite</option>
+          </select>
+        </div>
+        
+        <div class="map-layer-menu">
+          <button id="layer-menu-toggle" class="map-layer-menu-toggle" type="button" aria-expanded="false">Show Layer Menu</button>
+          <div id="layer-menu-panel" class="map-layer-menu-panel hidden">
+            <div class="map-layer-menu-title">Map Layers</div>
+            <div class="map-controls-toggle-grid">
+            <label class="toggle-control">
+              <span class="toggle-label">📡 Radar</span>
+              <span class="switch-toggle">
+                <input type="checkbox" id="toggle-radar" data-layer="radar" checked>
+                <span class="toggle-slider"></span>
+              </span>
+            </label>
+            <label class="toggle-control">
+              <span class="toggle-label">☁️ Clouds</span>
+              <span class="switch-toggle">
+                <input type="checkbox" id="toggle-satellite" data-layer="satellite">
+                <span class="toggle-slider"></span>
+              </span>
+            </label>
+            <label class="toggle-control">
+              <span class="toggle-label">⚡ Lightning</span>
+              <span class="switch-toggle">
+                <input type="checkbox" id="toggle-lightning" data-layer="lightning">
+                <span class="toggle-slider"></span>
+              </span>
+            </label>
+            <label class="toggle-control">
+              <span class="toggle-label">💨 Wind</span>
+              <span class="switch-toggle">
+                <input type="checkbox" id="toggle-wind" data-layer="wind" checked>
+                <span class="toggle-slider"></span>
+              </span>
+            </label>
+            <label class="toggle-control">
+              <span class="toggle-label">🌫 Air Quality</span>
+              <span class="switch-toggle">
+                <input type="checkbox" id="toggle-aqi" data-layer="aqi">
+                <span class="toggle-slider"></span>
+              </span>
+            </label>
+            <label class="toggle-control">
+              <span class="toggle-label">⚠️ Alerts</span>
+              <span class="switch-toggle">
+                <input type="checkbox" id="toggle-alerts" data-layer="alerts">
+                <span class="toggle-slider"></span>
+              </span>
+            </label>
+            <label class="toggle-control">
+              <span class="toggle-label">🌡️ Temperature</span>
+              <span class="switch-toggle">
+                <input type="checkbox" id="toggle-temp" data-layer="temp" checked>
+                <span class="toggle-slider"></span>
+              </span>
+            </label>
+            <label class="toggle-control">
+              <span class="toggle-label">☀️ Sun/Moon</span>
+              <span class="switch-toggle">
+                <input type="checkbox" id="toggle-sun-moon" data-layer="sun-moon">
+                <span class="toggle-slider"></span>
+              </span>
+            </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Map -->
+      <div class="unified-map-shell">
+        <div id="unified-map" class="unified-map-container" style="height:56vh; min-height:420px;"></div>
+        <div class="map-overlay-readouts" id="map-overlay-readouts">
+          <span class="map-readout-chip" id="overlay-temp">Temp --</span>
+          <span class="map-readout-chip" id="overlay-aqi">AQI --</span>
+          <span class="map-readout-chip" id="overlay-sunmoon">Sun -- • Moon --</span>
+        </div>
+      </div>
+
+      <!-- Radar/Satellite Timeline Controls -->
+      <div class="map-timeline-wrap hidden" id="timeline-controls">
+        <div class="radar-controls">
+          <button id="timeline-play" class="radar-btn play-btn" title="Play/Pause">▶</button>
+          <div class="radar-timeline" id="timeline-slider"></div>
+          <span id="timeline-timestamp" class="radar-ts">--</span>
+        </div>
         <div class="radar-legend">
           <span class="legend-label">Light</span>
           <div class="legend-bar"></div>
           <span class="legend-label">Heavy</span>
         </div>
       </div>
-    </div>
-    <p class="radar-attribution">Radar tiles © <a href="https://www.rainviewer.com" target="_blank">RainViewer</a> · Map © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a></p>
-  </div>
 
-  <!-- ── TAB: MAPS ── -->
-  <div id="tab-maps" class="tab-panel hidden">
-    <div class="section-head">
-      <span class="section-label">Maps</span>
-      <span class="section-actions">
-        <button id="maps-fullscreen-btn" class="link-btn" type="button">Fullscreen map</button>
-      </span>
-    </div>
-    <div class="maps-wrap">
-      <div id="map-overview" class="radar-map map-overview"></div>
-      <div class="maps-controls">
-        <label class="maps-control">
-          <span>Radar opacity</span>
-          <input id="radar-opacity" type="range" min="15" max="90" step="5" value="65">
-        </label>
-        <label class="maps-control">
-          <span>Lightning age</span>
-          <select id="lightning-age">
-            <option value="5">Last 5m</option>
-            <option value="15" selected>Last 15m</option>
-            <option value="30">Last 30m</option>
-          </select>
-        </label>
-      </div>
-      <div class="maps-meta">
-        <div class="maps-card">
-          <div class="stat-label">Data Source Location</div>
-          <div id="maps-location" class="maps-value">--</div>
+      <!-- Data Panel -->
+      <div class="map-data-panel hidden" id="data-panel">
+        <div class="panel-location">
+          <span id="panel-location-name">--</span>
         </div>
-        <div class="maps-card">
-          <div class="stat-label">Current Wind</div>
-          <div id="maps-wind" class="maps-value">--</div>
+        <div class="panel-data">
+          <div class="data-item">
+            <span class="data-label">Wind</span>
+            <span id="panel-wind-speed">--</span>
+          </div>
+          <div class="data-item">
+            <span class="data-label">Direction</span>
+            <span id="panel-wind-dir">--</span>
+          </div>
+          <div class="data-item">
+            <span class="data-label">Temp</span>
+            <span id="panel-temp">--</span>
+          </div>
+          <div class="data-item">
+            <span class="data-label">AQI</span>
+            <span id="panel-aqi">--</span>
+          </div>
+          <div class="data-item">
+            <span class="data-label">Cloud Cover</span>
+            <span id="panel-cloud">--</span>
+          </div>
         </div>
       </div>
-      <div class="wind-legend" aria-hidden="true">
-        <span>Wind legend</span>
-        <div class="wind-legend-scale"><i></i></div>
-      </div>
-      <p class="panel-note">Toggle lightning strikes and wind overlay in Settings. Lightning overlay uses active thunderstorm alert geometry.</p>
     </div>
   </div>
 
@@ -204,11 +372,12 @@
     <div id="alerts-wrap" class="alerts-wrap hidden">
       <div class="section-head">
         <span class="section-label">Weather Alerts</span>
-        <span class="section-actions">
+        <div class="alerts-actions">
+          <button id="share-weather-card-btn" class="link-btn" type="button">Share weather card</button>
           <button id="notify-btn" class="link-btn" type="button">Enable notifications</button>
-          <button id="push-test-btn" class="link-btn" type="button">Send test push</button>
-        </span>
+        </div>
       </div>
+      <p id="share-weather-status" class="alerts-share-status hidden"></p>
       <div id="alerts-list" class="alerts-list"></div>
     </div>
     <p id="alerts-empty" class="panel-note">No active alerts for this location.</p>
@@ -222,15 +391,14 @@
           <span>Saved locations</span>
           <button id="save-current-btn" class="link-btn" type="button">Save current</button>
         </div>
-        <p class="saved-help">Use star for default, arrows to reorder.</p>
         <div id="saved-locations" class="saved-locations"></div>
       </div>
 
       <div class="settings-row">
         <span class="settings-label">Auto-detect location on startup</span>
-        <label class="auto-detect-toggle" for="auto-detect-toggle">
+        <label class="switch-toggle">
           <input id="auto-detect-toggle" type="checkbox" checked>
-          <span>Enabled</span>
+          <span class="toggle-slider"></span>
         </label>
       </div>
 
@@ -240,82 +408,732 @@
       </div>
 
       <div class="settings-row">
-        <span class="settings-label">Default city</span>
-        <span id="default-city" class="settings-value">None</span>
-      </div>
-
-      <div class="settings-row">
         <span class="settings-label">Units</span>
         <button id="units-btn-settings" class="settings-btn" type="button">US</button>
-      </div>
-
-      <div class="settings-row">
-        <span class="settings-label">Lightning strikes on map</span>
-        <label class="toggle-label" for="lightning-toggle">
-          <input id="lightning-toggle" type="checkbox">
-          <span id="lightning-status">Off</span>
-        </label>
-      </div>
-
-      <div class="settings-row">
-        <span class="settings-label">Wind overlay on map</span>
-        <label class="toggle-label" for="wind-toggle">
-          <input id="wind-toggle" type="checkbox">
-          <span id="wind-status">Off</span>
-        </label>
-      </div>
-
-      <div class="settings-row">
-        <span class="settings-label">High contrast mode</span>
-        <label class="toggle-label" for="contrast-toggle">
-          <input id="contrast-toggle" type="checkbox">
-          <span id="contrast-status">Off</span>
-        </label>
       </div>
     </div>
   </div>
 
-  <nav class="tabs" aria-label="Primary navigation">
-    <button class="tab active" data-tab="conditions" aria-label="Conditions">
-      <span class="tab-icon" aria-hidden="true">🌤</span>
-      <span class="tab-text">Now</span>
-    </button>
-    <button class="tab" data-tab="radar-full" aria-label="Radar">
-      <span class="tab-icon" aria-hidden="true">🛰</span>
-      <span class="tab-text">Radar</span>
-    </button>
-    <button class="tab" data-tab="maps" aria-label="Maps">
-      <span class="tab-icon" aria-hidden="true">🗺</span>
-      <span class="tab-text">Maps</span>
-    </button>
-    <button class="tab" data-tab="alerts" aria-label="Alerts">
-      <span class="tab-icon" aria-hidden="true">⚠️</span>
-      <span class="tab-text">Alerts</span>
-    </button>
-    <button class="tab" data-tab="settings" aria-label="Settings">
-      <span class="tab-icon" aria-hidden="true">⚙️</span>
-      <span class="tab-text">Settings</span>
-    </button>
-  </nav>
+  <!-- ── TAB: LEARN ── -->
+  <div id="tab-learn" class="tab-panel hidden">
+    <div class="learn-wrap">
+      <h3 class="learn-title" id="learn-top">Weather Learning Guide</h3>
+      <p class="learn-intro">This page explains what each reading means and how to use it in daily decisions.</p>
+
+      <div class="learn-toc">
+        <h4 class="learn-toc-title">Contents</h4>
+        <div class="learn-toc-links">
+          <a href="#learn-aqi">AQI Bands</a>
+          <a href="#learn-wind">Wind Guide</a>
+          <a href="#learn-radar">Radar Legend</a>
+          <a href="#learn-map">Map Reading</a>
+          <a href="#learn-comfort">Humidity & Dew Point</a>
+          <a href="#learn-uv">UV Risk</a>
+          <a href="#learn-alerts">Alert Terms</a>
+          <a href="#learn-winter">Winter Types</a>
+          <a href="#learn-profiles">Risk Profiles</a>
+          <a href="#learn-matrix">Activity Matrix</a>
+          <a href="#learn-lightning">Lightning Safety</a>
+          <a href="#learn-flood">Flood Triggers</a>
+          <a href="#learn-confidence">Forecast Confidence</a>
+          <a href="#learn-faq">FAQ</a>
+          <a href="#learn-checklist">Emergency Checklist</a>
+          <a href="#learn-glossary">Glossary</a>
+        </div>
+      </div>
+
+      <div class="learn-grid">
+        <article class="learn-card">
+          <h4>Temperature</h4>
+          <p>Air temperature measured about 2 meters above ground. Use it for clothing and comfort.</p>
+        </article>
+        <article class="learn-card">
+          <h4>Feels Like</h4>
+          <p>Adjusted temperature that includes wind chill (cold) or heat index (hot/humid).</p>
+        </article>
+        <article class="learn-card">
+          <h4>Wind Speed & Direction</h4>
+          <p>Speed is how fast air moves. Direction is where wind comes from (for example, West means from the west).</p>
+        </article>
+        <article class="learn-card">
+          <h4>Wind Gusts</h4>
+          <p>Short bursts stronger than average wind. Important for driving, biking, and outdoor safety.</p>
+        </article>
+        <article class="learn-card">
+          <h4>Humidity</h4>
+          <p>How much moisture is in the air. Higher humidity can make warm weather feel hotter.</p>
+        </article>
+        <article class="learn-card">
+          <h4>Dew Point</h4>
+          <p>Temperature at which air becomes saturated. Higher dew point means a stickier, more humid feel.</p>
+        </article>
+        <article class="learn-card">
+          <h4>Pressure</h4>
+          <p>Atmospheric pressure in hPa. Falling pressure can signal unsettled weather.</p>
+        </article>
+        <article class="learn-card">
+          <h4>Visibility</h4>
+          <p>How far you can clearly see. Low visibility often occurs with fog, heavy rain, or snow.</p>
+        </article>
+        <article class="learn-card">
+          <h4>Cloud Cover</h4>
+          <p>Percent of sky covered by clouds. 0% is clear; 100% is overcast.</p>
+        </article>
+        <article class="learn-card">
+          <h4>Radar</h4>
+          <p>Shows precipitation intensity and motion. Use animation to see where rain/snow is moving.</p>
+        </article>
+        <article class="learn-card">
+          <h4>AQI (Air Quality Index)</h4>
+          <p>Higher AQI means worse air. Sensitive groups should reduce outdoor activity when AQI is elevated.</p>
+        </article>
+        <article class="learn-card">
+          <h4>Sunrise / Sunset / Moon</h4>
+          <p>Useful for planning daylight hours, photography, and evening conditions.</p>
+        </article>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-aqi">AQI Severity Bands (US AQI)</h4>
+        <p class="learn-section-intro">Higher values mean more pollution risk, especially for sensitive groups.</p>
+        <div class="learn-range-list">
+          <div class="learn-range-item">
+            <span class="range-swatch aqi-good"></span>
+            <span class="range-value">0-50</span>
+            <span class="range-label">Good</span>
+            <span class="range-note">Air is clean for most people.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch aqi-moderate"></span>
+            <span class="range-value">51-100</span>
+            <span class="range-label">Moderate</span>
+            <span class="range-note">Unusually sensitive people may notice symptoms.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch aqi-sensitive"></span>
+            <span class="range-value">101-150</span>
+            <span class="range-label">Unhealthy for Sensitive Groups</span>
+            <span class="range-note">Children, elderly, and respiratory patients should limit exertion.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch aqi-unhealthy"></span>
+            <span class="range-value">151-200</span>
+            <span class="range-label">Unhealthy</span>
+            <span class="range-note">Everyone may begin to feel effects; reduce prolonged outdoor activity.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch aqi-very-unhealthy"></span>
+            <span class="range-value">201-300</span>
+            <span class="range-label">Very Unhealthy</span>
+            <span class="range-note">Health alert conditions; stay indoors when possible.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch aqi-hazardous"></span>
+            <span class="range-value">301+</span>
+            <span class="range-label">Hazardous</span>
+            <span class="range-note">Emergency conditions; avoid outdoor exposure.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-wind">Wind Threshold Guide</h4>
+        <p class="learn-section-intro">Use sustained wind for general conditions and gusts for sudden impacts.</p>
+        <div class="learn-range-list">
+          <div class="learn-range-item">
+            <span class="range-swatch wind-calm"></span>
+            <span class="range-value">0-7 mph</span>
+            <span class="range-label">Calm to Light</span>
+            <span class="range-note">Little effect on activities.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch wind-breezy"></span>
+            <span class="range-value">8-18 mph</span>
+            <span class="range-label">Breezy</span>
+            <span class="range-note">Noticeable wind; light debris may move.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch wind-windy"></span>
+            <span class="range-value">19-31 mph</span>
+            <span class="range-label">Windy</span>
+            <span class="range-note">Harder for high-profile vehicles and cyclists.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch wind-strong"></span>
+            <span class="range-value">32-46 mph</span>
+            <span class="range-label">Strong</span>
+            <span class="range-note">Tree limbs can break; caution outdoors.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch wind-severe"></span>
+            <span class="range-value">47+ mph</span>
+            <span class="range-label">Severe / Damaging</span>
+            <span class="range-note">Potential structural impacts and power interruptions.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-radar">Radar Intensity Legend (General)</h4>
+        <p class="learn-section-intro">Color shades generally map to precipitation intensity from light to extreme.</p>
+        <div class="learn-range-list">
+          <div class="learn-range-item">
+            <span class="range-swatch radar-light"></span>
+            <span class="range-value">Light Blue / Green</span>
+            <span class="range-label">Light Rain or Snow</span>
+            <span class="range-note">Usually low impact, but can reduce visibility.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch radar-moderate"></span>
+            <span class="range-value">Yellow</span>
+            <span class="range-label">Moderate Precipitation</span>
+            <span class="range-note">Steadier rain/snow, pooling possible in poor drainage.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch radar-heavy"></span>
+            <span class="range-value">Orange / Red</span>
+            <span class="range-label">Heavy Rain / Strong Cells</span>
+            <span class="range-note">Rapid visibility drop and localized flooding risk.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch radar-extreme"></span>
+            <span class="range-value">Dark Red / Purple</span>
+            <span class="range-label">Very Intense Storm Core</span>
+            <span class="range-note">Severe weather possible; monitor warnings closely.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-map">How To Read The Map Quickly</h4>
+        <ul class="learn-list">
+          <li>Start with radar animation direction to see where precipitation is moving next 30-60 minutes.</li>
+          <li>Check wind arrows for transport direction of smoke, storms, and temperature changes.</li>
+          <li>Compare AQI and wind together: poor AQI plus low wind can mean slower air cleanup.</li>
+          <li>Use sunrise/sunset values to plan travel and outdoor time before dark.</li>
+          <li>Treat alerts as highest priority when present, even if current radar looks quiet.</li>
+        </ul>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-comfort">Humidity & Dew Point Comfort Scale</h4>
+        <p class="learn-section-intro">Dew point is often the best quick signal for how sticky the air will feel.</p>
+        <div class="learn-range-list">
+          <div class="learn-range-item">
+            <span class="range-swatch comfort-dry"></span>
+            <span class="range-value">Below 50 F</span>
+            <span class="range-label">Dry / Comfortable</span>
+            <span class="range-note">Most people feel comfortable, especially in shade.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch comfort-pleasant"></span>
+            <span class="range-value">50-59 F</span>
+            <span class="range-label">Pleasant</span>
+            <span class="range-note">Slight humidity, still comfortable for most activity.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch comfort-sticky"></span>
+            <span class="range-value">60-64 F</span>
+            <span class="range-label">Sticky</span>
+            <span class="range-note">Many people begin to notice muggy conditions.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch comfort-oppressive"></span>
+            <span class="range-value">65-69 F</span>
+            <span class="range-label">Very Humid</span>
+            <span class="range-note">Outdoor exertion can feel much harder.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch comfort-tropical"></span>
+            <span class="range-value">70 F+</span>
+            <span class="range-label">Oppressive / Tropical</span>
+            <span class="range-note">Heat stress risk rises quickly; hydrate and take breaks.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-pressure">Pressure Trend Clues</h4>
+        <p class="learn-section-intro">The trend matters more than a single pressure number.</p>
+        <ul class="learn-list">
+          <li>Rising pressure usually signals stabilizing weather and improving conditions.</li>
+          <li>Falling pressure often signals approaching storms, fronts, or unsettled weather.</li>
+          <li>A rapid pressure drop can be a warning sign for stronger systems.</li>
+          <li>Compare pressure changes with wind shifts and radar movement for better timing.</li>
+        </ul>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-visibility">Visibility Guide</h4>
+        <div class="learn-range-list">
+          <div class="learn-range-item">
+            <span class="range-swatch vis-good"></span>
+            <span class="range-value">6+ mi</span>
+            <span class="range-label">Good</span>
+            <span class="range-note">Normal driving and outdoor visibility.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch vis-fair"></span>
+            <span class="range-value">3-6 mi</span>
+            <span class="range-label">Fair</span>
+            <span class="range-note">Haze/light precipitation may reduce distant detail.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch vis-poor"></span>
+            <span class="range-value">1-3 mi</span>
+            <span class="range-label">Poor</span>
+            <span class="range-note">Use caution while driving; increase following distance.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch vis-danger"></span>
+            <span class="range-value">Below 1 mi</span>
+            <span class="range-label">Dangerous</span>
+            <span class="range-note">Fog/heavy precip can make travel hazardous.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-uv">UV Index Risk Bands</h4>
+        <div class="learn-range-list">
+          <div class="learn-range-item">
+            <span class="range-swatch uv-low"></span>
+            <span class="range-value">0-2</span>
+            <span class="range-label">Low</span>
+            <span class="range-note">Minimal protection needed for most people.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch uv-moderate"></span>
+            <span class="range-value">3-5</span>
+            <span class="range-label">Moderate</span>
+            <span class="range-note">Use sunscreen and sunglasses.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch uv-high"></span>
+            <span class="range-value">6-7</span>
+            <span class="range-label">High</span>
+            <span class="range-note">Limit midday sun and protect skin.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch uv-very-high"></span>
+            <span class="range-value">8-10</span>
+            <span class="range-label">Very High</span>
+            <span class="range-note">Burn risk rises quickly; seek shade often.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch uv-extreme"></span>
+            <span class="range-value">11+</span>
+            <span class="range-label">Extreme</span>
+            <span class="range-note">Unprotected skin can burn rapidly.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-alerts">Alert Terms: Watch vs Warning vs Advisory</h4>
+        <div class="learn-table">
+          <div class="learn-table-row learn-table-head">
+            <span>Term</span>
+            <span>Meaning</span>
+            <span>What To Do</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Watch</span>
+            <span>Conditions are favorable.</span>
+            <span>Prepare and monitor updates.</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Warning</span>
+            <span>Dangerous weather is happening or imminent.</span>
+            <span>Take action now to protect life and property.</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Advisory</span>
+            <span>Hazardous conditions likely to cause inconvenience or minor impacts.</span>
+            <span>Use extra caution.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-precip">Precipitation Probability Basics</h4>
+        <ul class="learn-list">
+          <li>A 30% rain chance means a 3-in-10 chance of measurable precipitation at your location.</li>
+          <li>Probability does not equal duration: short heavy bursts can happen with moderate percentages.</li>
+          <li>Use radar animation with hourly probability for best near-term planning.</li>
+          <li>Snow type and accumulation depend strongly on near-surface temperature and layer depth aloft.</li>
+        </ul>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-cloud">Reading Cloud Cover</h4>
+        <div class="learn-range-list">
+          <div class="learn-range-item">
+            <span class="range-swatch cloud-clear"></span>
+            <span class="range-value">0-20%</span>
+            <span class="range-label">Mostly Clear</span>
+            <span class="range-note">Good sky visibility and strong daytime sun.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch cloud-partly"></span>
+            <span class="range-value">21-60%</span>
+            <span class="range-label">Partly Cloudy</span>
+            <span class="range-note">Variable sun with passing clouds.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch cloud-mostly"></span>
+            <span class="range-value">61-85%</span>
+            <span class="range-label">Mostly Cloudy</span>
+            <span class="range-note">Limited sunshine and cooler daytime heating.</span>
+          </div>
+          <div class="learn-range-item">
+            <span class="range-swatch cloud-overcast"></span>
+            <span class="range-value">86-100%</span>
+            <span class="range-label">Overcast</span>
+            <span class="range-note">Gray skies; often linked with steady precipitation systems.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-severe">Severe Weather Quick Signals</h4>
+        <ul class="learn-list">
+          <li>Rapidly strengthening radar cores plus rising winds can indicate stronger storm potential.</li>
+          <li>Sudden wind direction shifts near a storm can mark boundary passage or outflow.</li>
+          <li>Frequent lightning, intense rain rates, and repeated cells over one area raise flash-flood concern.</li>
+          <li>Always prioritize official warnings over visual interpretation.</li>
+        </ul>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-units">Unit Conversion Quick Reference</h4>
+        <div class="learn-table">
+          <div class="learn-table-row learn-table-head">
+            <span>Metric</span>
+            <span>US</span>
+            <span>Rule of Thumb</span>
+          </div>
+          <div class="learn-table-row">
+            <span>C</span>
+            <span>F</span>
+            <span>20C is about 68F, 30C is about 86F.</span>
+          </div>
+          <div class="learn-table-row">
+            <span>km/h</span>
+            <span>mph</span>
+            <span>mph is roughly km/h divided by 1.6.</span>
+          </div>
+          <div class="learn-table-row">
+            <span>mm</span>
+            <span>in</span>
+            <span>25 mm is about 1 inch.</span>
+          </div>
+          <div class="learn-table-row">
+            <span>km</span>
+            <span>mi</span>
+            <span>1 mile is about 1.6 km.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-data">Data Timing Notes</h4>
+        <ul class="learn-list">
+          <li>Current values and hourly forecasts can update at different cadences depending on source.</li>
+          <li>Radar frames can arrive every few minutes and may have occasional provider delays.</li>
+          <li>A single outlier value should be interpreted with recent trend context when possible.</li>
+        </ul>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-profiles">Personal Risk Profiles</h4>
+        <p class="learn-section-intro">These groups should use tighter limits when planning outdoor time.</p>
+        <div class="learn-table">
+          <div class="learn-table-row learn-table-head">
+            <span>Profile</span>
+            <span>Watch Closely</span>
+            <span>Suggested Action</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Children</span>
+            <span>Heat index, AQI, lightning</span>
+            <span>Shorten play in heat/haze and move inside at thunder.</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Older Adults</span>
+            <span>Heat, wind chill, poor AQI</span>
+            <span>Avoid peak heat/cold windows and reduce exertion.</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Asthma/COPD</span>
+            <span>AQI, smoke transport wind</span>
+            <span>Limit outdoor effort when AQI rises above 100.</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Outdoor Workers</span>
+            <span>Heat stress, lightning, strong gusts</span>
+            <span>Use hydration/rest cycles and stop work for nearby storms.</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Pets</span>
+            <span>Hot pavement, cold wind, AQI</span>
+            <span>Shorten walks in extreme heat/cold and poor air.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-matrix">Activity Decision Matrix</h4>
+        <p class="learn-section-intro">Use this quick matrix to decide if activity is generally good, caution, or postpone.</p>
+        <div class="learn-table">
+          <div class="learn-table-row learn-table-head">
+            <span>Activity</span>
+            <span>Caution Triggers</span>
+            <span>Postpone Triggers</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Run / Bike</span>
+            <span>AQI 101+, gusts 25+ mph, heat index above 90 F</span>
+            <span>Lightning nearby, AQI 151+, visibility below 1 mile</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Yard Work</span>
+            <span>Heat index 95+, sustained wind 25+ mph</span>
+            <span>Warning-level storms or severe gust risk</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Commuting</span>
+            <span>Visibility 1-3 miles, heavy radar returns</span>
+            <span>Flooded roads, freezing rain, visibility below 1 mile</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Grilling / Events</span>
+            <span>Gusts 20+ mph, rain cores approaching</span>
+            <span>Lightning or severe thunderstorm warnings</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Long Drive</span>
+            <span>Strong crosswinds and moderate heavy precip</span>
+            <span>Ice accretion risk, flash-flood warnings, blizzard-like visibility</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-lightning">Lightning Safety Rules</h4>
+        <ul class="learn-list">
+          <li>30/30 rule: if thunder follows lightning within 30 seconds, move indoors immediately.</li>
+          <li>Wait at least 30 minutes after the last thunder before resuming outdoor activity.</li>
+          <li>Safe shelter means a fully enclosed building or hard-top vehicle with windows closed.</li>
+          <li>Avoid trees, open fields, metal fences, and water during thunderstorms.</li>
+          <li>If indoors, avoid corded electronics and plumbing during active lightning.</li>
+        </ul>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-flood">Flood and Heavy Rain Triggers</h4>
+        <ul class="learn-list">
+          <li>Slow-moving radar cores repeatedly passing over one area can cause flash flooding.</li>
+          <li>Urban areas flood faster due to hard surfaces and poor drainage.</li>
+          <li>Rising stream or ditch levels plus continued heavy rain indicate escalating risk.</li>
+          <li>Never drive through water-covered roads; depth and road damage are hard to judge.</li>
+          <li>Turn around, do not drown: the safest route is always to avoid flooded crossings.</li>
+        </ul>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-winter">Winter Precipitation Type Guide</h4>
+        <div class="learn-table">
+          <div class="learn-table-row learn-table-head">
+            <span>Type</span>
+            <span>Typical Setup</span>
+            <span>Common Impact</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Snow</span>
+            <span>Colder layers top to bottom</span>
+            <span>Accumulation, lower visibility, slower travel</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Sleet</span>
+            <span>Melting aloft then refreezing before ground</span>
+            <span>Pellet ice and slick roads</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Freezing Rain</span>
+            <span>Warm layer aloft with shallow subfreezing surface</span>
+            <span>High-impact glaze ice on roads, trees, and power lines</span>
+          </div>
+          <div class="learn-table-row">
+            <span>Cold Rain</span>
+            <span>Surface above freezing</span>
+            <span>Wet roads without ice unless temps drop later</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-confidence">Forecast Confidence Explained</h4>
+        <div class="learn-mini-grid">
+          <article class="learn-mini-card">
+            <h5>High Confidence</h5>
+            <p>Models agree on timing and intensity. Day planning is usually stable.</p>
+          </article>
+          <article class="learn-mini-card">
+            <h5>Medium Confidence</h5>
+            <p>General pattern is clear, but timing or totals may shift.</p>
+          </article>
+          <article class="learn-mini-card">
+            <h5>Low Confidence</h5>
+            <p>Competing scenarios. Recheck often and plan with larger safety margins.</p>
+          </article>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-normals">Local Climate Normals Context</h4>
+        <ul class="learn-list">
+          <li>Compare today to normal seasonal values, not only yesterday.</li>
+          <li>A temperature departure of plus/minus 10 F from normal is usually notable.</li>
+          <li>Several wet or dry weeks in a row matter more than one unusual day.</li>
+          <li>Use normals to judge whether current patterns are typical for your area and month.</li>
+        </ul>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-faq">FAQ</h4>
+        <div class="learn-faq">
+          <details class="learn-faq-item">
+            <summary>Why does radar show rain but I do not feel it yet?</summary>
+            <p>Precipitation can evaporate before reaching the ground, or the core may pass just north/south of your exact location.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Why did temperature change quickly in one hour?</summary>
+            <p>A front passage, cloud break, rain-cooled outflow, or wind direction shift can change temperature rapidly.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Why is wind gust much higher than sustained wind?</summary>
+            <p>Sustained wind is an average over time, while gusts capture brief stronger bursts.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Why can AQI be poor even when sky looks clear?</summary>
+            <p>Fine particles and ozone are not always visible. Transport winds can carry pollution long distances.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Why does forecast rain timing keep shifting?</summary>
+            <p>Small speed changes in fronts or storm lines can move arrival by hours, especially in warm-season convection.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Why can one neighborhood get heavy rain while another stays dry?</summary>
+            <p>Thunderstorms are highly localized. A slight shift in storm track can create large differences over short distances.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Why does it feel hotter than the listed air temperature?</summary>
+            <p>High humidity reduces evaporative cooling from skin. Direct sun and low wind can make it feel even warmer.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Why is the app showing no precipitation while radar still has color?</summary>
+            <p>Radar reflectivity may detect virga, non-reaching snow grains, or weak echoes that do not produce measurable ground accumulation.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>What is the difference between weather watch and warning again?</summary>
+            <p>A watch means conditions are favorable. A warning means hazardous weather is occurring or imminent and action should be taken now.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>How often should I refresh during severe weather?</summary>
+            <p>Check every few minutes when storms are nearby. Radar and alerts can update quickly as conditions evolve.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Why does wind direction matter for storms and smoke?</summary>
+            <p>Wind direction controls where storm outflow, smoke, and pollution plumes travel, affecting local impact timing.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>How can I tell if roads might flood soon?</summary>
+            <p>Look for repeated heavy radar cells over the same area, poor drainage zones, and active flood alerts.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Why does freezing rain cause more damage than snow?</summary>
+            <p>Freezing rain forms glaze ice on roads, trees, and power lines, creating severe traction and infrastructure risk.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Can good visibility still be dangerous for driving?</summary>
+            <p>Yes. Wind gusts, black ice, or sudden hydroplaning can create hazards even when visibility appears acceptable.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>What should I trust most when map layers disagree?</summary>
+            <p>Prioritize official alerts first, then current observations/radar, then short-term forecast trends.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>Why does sunrise or sunset time matter beyond daylight?</summary>
+            <p>Temperature, visibility, and road conditions can change quickly around sunrise/sunset, and glare risk increases.</p>
+          </details>
+          <details class="learn-faq-item">
+            <summary>How should I plan outdoor exercise using this app?</summary>
+            <p>Check AQI, temperature/feels-like, wind gusts, and radar trend together. Avoid peak heat, smoke, and nearby lightning.</p>
+          </details>
+        </div>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-checklist">Emergency Readiness Checklist</h4>
+        <ul class="learn-checklist">
+          <li>Water, food, medications, flashlight, and batteries for at least 72 hours.</li>
+          <li>Phone power bank charged before severe weather windows.</li>
+          <li>Family meeting point and communication plan.</li>
+          <li>Weather radio or alert-enabled phone notifications.</li>
+          <li>Vehicle fuel and alternate route plan for flood or ice risk.</li>
+          <li>Pet food, leash, and carrier ready for rapid relocation.</li>
+        </ul>
+      </div>
+
+      <div class="learn-section">
+        <h4 class="learn-section-title" id="learn-glossary">Glossary Quick Terms</h4>
+        <div class="learn-glossary-grid">
+          <article class="glossary-item"><h5>Dew Point</h5><p>Temperature where air saturates; stronger comfort indicator than humidity percent.</p></article>
+          <article class="glossary-item"><h5>Heat Index</h5><p>How hot it feels when humidity is combined with air temperature.</p></article>
+          <article class="glossary-item"><h5>Wind Chill</h5><p>How cold it feels when wind increases heat loss from skin.</p></article>
+          <article class="glossary-item"><h5>Reflectivity</h5><p>Radar measure of returned energy; higher values often indicate heavier precipitation.</p></article>
+          <article class="glossary-item"><h5>Advection</h5><p>Horizontal movement of air that transports heat, moisture, smoke, or haze.</p></article>
+          <article class="glossary-item"><h5>Inversion</h5><p>Layer where temperature rises with height, often trapping pollution near the surface.</p></article>
+          <article class="glossary-item"><h5>Outflow Boundary</h5><p>Cool air spreading from storms that can trigger new storm development.</p></article>
+          <article class="glossary-item"><h5>Nowcasting</h5><p>Very short-term forecasting focused on the next minutes to few hours.</p></article>
+        </div>
+      </div>
+
+      <a class="learn-back-top" href="#learn-top" aria-label="Back to top of Learn contents">Back to Top</a>
+    </div>
+  </div>
 
 </div><!-- .app -->
 
+<nav class="bottom-nav" aria-label="Mobile navigation">
+  <button class="bottom-tab active" data-tab="conditions" type="button">
+    <span class="bottom-icon">⛅</span>
+    <span class="bottom-label">Now</span>
+  </button>
+  <button class="bottom-tab" data-tab="unified-map" type="button">
+    <span class="bottom-icon">🗺️</span>
+    <span class="bottom-label">Map</span>
+  </button>
+  <button class="bottom-tab" data-tab="alerts" type="button">
+    <span class="bottom-icon">⚠️</span>
+    <span class="bottom-label">Alerts</span>
+  </button>
+  <button class="bottom-tab" data-tab="learn" type="button">
+    <span class="bottom-icon">📘</span>
+    <span class="bottom-label">Learn</span>
+  </button>
+  <button class="bottom-tab" data-tab="settings" type="button">
+    <span class="bottom-icon">⚙️</span>
+    <span class="bottom-label">Settings</span>
+  </button>
+</nav>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js"></script>
 <script>
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').then(reg => {
-        reg.update().catch(() => {});
-      });
-
-      let refreshing = false;
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (refreshing) return;
-        refreshing = true;
-        window.location.reload();
-      });
-    });
+    navigator.serviceWorker.register('/sw.js');
   }
 </script>
 </body>

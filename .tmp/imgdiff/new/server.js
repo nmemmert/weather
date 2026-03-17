@@ -5,21 +5,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const weatherCache = new Map();
 
-// Keep shell assets fresh so SW/app versions do not drift.
-app.use('/', (req, res, next) => {
-  if (req.path === '/' || req.path.endsWith('.html')) {
-    res.setHeader('Cache-Control', 'no-store');
-  } else if (
-    req.path.endsWith('.css') ||
-    req.path.endsWith('.js') ||
-    req.path === '/sw.js' ||
-    req.path === '/manifest.json'
-  ) {
-    res.setHeader('Cache-Control', 'no-cache');
-  }
-  next();
-});
-
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Prevent browser favicon requests from showing noisy 404s.
@@ -277,48 +262,23 @@ app.get('/api/alerts', async (req, res) => {
   }
 });
 
-// Radar/satellite tile configuration
+// RainViewer timestamps proxy
 app.get('/api/radar/times', async (req, res) => {
   try {
-    const now = Math.floor(Date.now() / 1000);
-
-    // IEM NEXRAD tile service (US radar, public/free) with historical offsets for animation.
-    const radarLayerBase = 'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0';
-    const radarOffsetsMin = [55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0];
-    const radarPast = radarOffsetsMin.map(offset => {
-      const layer = offset === 0 ? 'nexrad-n0q-900913' : `nexrad-n0q-900913-m${String(offset).padStart(2, '0')}m`;
-      return {
-        time: now - (offset * 60),
-        url: `${radarLayerBase}/${layer}/{z}/{x}/{y}.png`,
-        isForecast: false,
-        maxNativeZoom: 12,
-      };
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    
+    const r = await fetch('https://api.rainviewer.com/public/weather-maps.json', {
+      signal: controller.signal,
     });
-
-    // IEM GOES East cloud/satellite frames for animation.
-    const satOffsetsMin = [30, 25, 20, 15, 10, 5, 0];
-    const satelliteInfrared = satOffsetsMin.map(offset => {
-      const layer = offset === 0 ? 'goes_east' : `goes_east_m${String(offset).padStart(2, '0')}m`;
-      return {
-        time: now - (offset * 60),
-        url: `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/${layer}/{z}/{x}/{y}.png`,
-        isForecast: false,
-        maxNativeZoom: 10,
-      };
-    });
-
-    res.json({
-      provider: 'iem-radar-rainviewer-sat',
-      radar: {
-        past: radarPast,
-        nowcast: [],
-      },
-      satellite: {
-        infrared: satelliteInfrared,
-      },
-    });
+    clearTimeout(timeoutId);
+    if (!r.ok) {
+      throw new Error(`RainViewer API returned ${r.status}`);
+    }
+    const data = await r.json();
+    res.json(data);
   } catch (e) {
-    console.error('Radar config error:', e.message);
+    console.error('Radar times fetch error:', e.message);
     res.status(500).json({ error: 'Radar times failed', detail: e.message });
   }
 });

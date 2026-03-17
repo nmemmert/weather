@@ -31,16 +31,6 @@ const STORAGE_KEYS = {
   autoDetect: 'weather.autoDetect',
   showLightning: 'weather.showLightning',
   showWind: 'weather.showWind',
-  showRadarLayer: 'weather.map.radar',
-  showSatelliteLayer: 'weather.map.satellite',
-  showLightningLayer: 'weather.map.lightning',
-  showWindLayer: 'weather.map.wind',
-  showAqiLayer: 'weather.map.aqi',
-  showAlertsLayer: 'weather.map.alerts',
-  showTempMarker: 'weather.map.temp',
-  showSunMoonMarkers: 'weather.map.sunMoon',
-  unifiedMapBaseLayer: 'weather.map.baseLayer',
-  unifiedMapRadarMode: 'weather.map.radarMode',
 };
 
 const state = {
@@ -51,7 +41,6 @@ const state = {
   currentCity: null,
   currentWeather: null,
   currentAir: null,
-  currentAlerts: null,
   currentSource: 'startup',
   savedCities: JSON.parse(localStorage.getItem(STORAGE_KEYS.savedCities) || '[]'),
   alertIdsSeen: new Set(),
@@ -59,23 +48,7 @@ const state = {
   lastRefreshAt: 0,
   lightningMarkers: [],
   windArrows: [],
-  aqiMarkers: [],
-  alertMarkers: [],
-  tempMarker: null,
-  sunMoonMarkers: [],
   showExtendedForecast: false,
-  unifiedMapLayers: {
-    radar: localStorage.getItem(STORAGE_KEYS.showRadarLayer) !== 'false',
-    satellite: localStorage.getItem(STORAGE_KEYS.showSatelliteLayer) !== 'false',
-    lightning: localStorage.getItem(STORAGE_KEYS.showLightningLayer) !== 'false',
-    wind: localStorage.getItem(STORAGE_KEYS.showWindLayer) !== 'false',
-    aqi: localStorage.getItem(STORAGE_KEYS.showAqiLayer) !== 'false',
-    alerts: localStorage.getItem(STORAGE_KEYS.showAlertsLayer) !== 'false',
-    temp: localStorage.getItem(STORAGE_KEYS.showTempMarker) !== 'false',
-    sunMoon: localStorage.getItem(STORAGE_KEYS.showSunMoonMarkers) !== 'false',
-  },
-  unifiedMapBaseLayer: localStorage.getItem(STORAGE_KEYS.unifiedMapBaseLayer) || 'dark',
-  unifiedMapRadarMode: localStorage.getItem(STORAGE_KEYS.unifiedMapRadarMode) || 'radar',
 };
 
 // ── DOM ──────────────────────────────────────────────────────────────────────
@@ -89,13 +62,9 @@ const weatherDiv = document.getElementById('weather');
 const unitsBtn = document.getElementById('units-btn');
 const unitsBtnSettings = document.getElementById('units-btn-settings');
 const shareBtn = document.getElementById('share-btn');
-const shareHeroBtn = document.getElementById('share-hero-btn');
-const shareWeatherCardBtn = document.getElementById('share-weather-card-btn');
 const saveCurrentBtn = document.getElementById('save-current-btn');
 const savedLocationsEl = document.getElementById('saved-locations');
 const notifyBtn = document.getElementById('notify-btn');
-const shareHeroStatusEl = document.getElementById('share-hero-status');
-const shareWeatherStatusEl = document.getElementById('share-weather-status');
 const autoDetectToggle = document.getElementById('auto-detect-toggle');
 const alertsEmptyEl = document.getElementById('alerts-empty');
 const settingsLocationEl = document.getElementById('settings-location');
@@ -111,6 +80,21 @@ const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const showErr = msg => { errorMsg.textContent = msg; show(errorMsg); };
 const clearErr = () => { errorMsg.textContent = ''; hide(errorMsg); };
+
+async function cleanupServiceWorkerInterceptors() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(reg => reg.unregister()));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(key => caches.delete(key)));
+    }
+  } catch (e) {
+    console.warn('Service worker/cache cleanup failed:', e?.message || e);
+  }
+}
 
 function compassDir(deg) {
   return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg / 45) % 8];
@@ -346,7 +330,6 @@ function renderSavedCities() {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
-
 function activateTab(tabName) {
   document.querySelectorAll('.tab, .bottom-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p => hide(p));
@@ -354,30 +337,24 @@ function activateTab(tabName) {
   show(document.getElementById('tab-' + tabName));
 
   if (tabName === 'conditions') {
-    setTimeout(() => { radarEmbed && radarEmbed.refresh && radarEmbed.refresh(); }, 60);
+    setTimeout(() => { radarEmbed.refresh && radarEmbed.refresh(); }, 60);
   }
-  if (tabName === 'unified-map') {
-    setTimeout(() => {
-      if (unifiedMap && unifiedMap.refresh) unifiedMap.refresh();
-      refreshMapsOverview();
-    }, 60);
-    setTimeout(() => {
-      if (unifiedMap && unifiedMap.refresh) unifiedMap.refresh();
-      refreshMapsOverview();
-    }, 340);
+  if (tabName === 'radar-full') {
+    setTimeout(() => { radarFull.refresh && radarFull.refresh(); }, 50);
+  }
+  if (tabName === 'maps') {
+    setTimeout(refreshMapsOverview, 80);
   }
 }
+
 document.querySelectorAll('.tab, .bottom-tab').forEach(btn => {
   btn.addEventListener('click', () => activateTab(btn.dataset.tab));
 });
 
+document.getElementById('open-radar-tab').addEventListener('click', () => {
+  activateTab('radar-full');
+});
 
-const openMapTabBtn = document.getElementById('open-map-tab');
-if (openMapTabBtn) {
-  openMapTabBtn.addEventListener('click', () => {
-    activateTab('unified-map');
-  });
-}
 // ── APIs ─────────────────────────────────────────────────────────────────────
 async function geocode(q) {
   const r = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
@@ -477,15 +454,8 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
     attributionControl: false,
   });
 
-  const baseMapType = mapEl?.id === 'unified-map' ? state.unifiedMapBaseLayer : 'dark';
-  const baseMapUrl = baseMapType === 'light'
-    ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
-    : baseMapType === 'satellite'
-      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-      : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-
-  L.tileLayer(baseMapUrl, {
-    maxZoom: baseMapType === 'satellite' ? 18 : 19,
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
   }).addTo(map);
 
   let radarFrames = [];
@@ -511,7 +481,6 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
   }
 
   function frameTileUrl(frame) {
-    if (frame?.url) return frame.url;
     if (mode === 'satellite') {
       return `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/0/0_0.png`;
     }
@@ -525,12 +494,7 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
     if (!frame) return;
 
     if (!layers[mode][frame.time]) {
-      const opts = {
-        opacity: 0,
-        maxZoom: 19,
-      };
-      if (frame?.maxNativeZoom != null) opts.maxNativeZoom = frame.maxNativeZoom;
-      layers[mode][frame.time] = L.tileLayer(frameTileUrl(frame), opts);
+      layers[mode][frame.time] = L.tileLayer(frameTileUrl(frame), { opacity: 0, maxZoom: 15 });
     }
 
     Object.values(layers.radar).forEach(l => {
@@ -634,27 +598,9 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
 
         radarFrames = [];
         satelliteFrames = [];
-        (data.radar?.past || []).forEach(f => radarFrames.push({
-          time: f.time,
-          path: f.path,
-          url: f.url,
-          maxNativeZoom: f.maxNativeZoom,
-          isForecast: false,
-        }));
-        (data.radar?.nowcast || []).forEach(f => radarFrames.push({
-          time: f.time,
-          path: f.path,
-          url: f.url,
-          maxNativeZoom: f.maxNativeZoom,
-          isForecast: true,
-        }));
-        (data.satellite?.infrared || []).forEach(f => satelliteFrames.push({
-          time: f.time,
-          path: f.path,
-          url: f.url,
-          maxNativeZoom: f.maxNativeZoom,
-          isForecast: false,
-        }));
+        (data.radar?.past || []).forEach(f => radarFrames.push({ time: f.time, path: f.path, isForecast: false }));
+        (data.radar?.nowcast || []).forEach(f => radarFrames.push({ time: f.time, path: f.path, isForecast: true }));
+        (data.satellite?.infrared || []).forEach(f => satelliteFrames.push({ time: f.time, path: f.path, isForecast: false }));
 
         if (!radarFrames.length && satelliteFrames.length) mode = 'satellite';
         if (!radarFrames.length && !satelliteFrames.length) {
@@ -733,27 +679,21 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
   return { map, panTo, startPlay, stopPlay, refresh };
 }
 
-const radarEmbedEl = document.getElementById('radar-embed');
-const radarEmbed = radarEmbedEl
-  ? createRadar(
-      radarEmbedEl,
-      document.getElementById('embed-timeline'),
-      document.getElementById('embed-play'),
-      document.getElementById('embed-timestamp'),
-      document.getElementById('embed-layer')
-    )
-  : { map: null, panTo: () => {}, startPlay: () => {}, stopPlay: () => {}, refresh: () => {} };
+const radarEmbed = createRadar(
+  document.getElementById('radar-embed'),
+  document.getElementById('embed-timeline'),
+  document.getElementById('embed-play'),
+  document.getElementById('embed-timestamp'),
+  document.getElementById('embed-layer')
+);
 
-const radarFullEl = document.getElementById('radar-full');
-const radarFull = radarFullEl
-  ? createRadar(
-      radarFullEl,
-      document.getElementById('full-timeline'),
-      document.getElementById('full-play'),
-      document.getElementById('full-timestamp'),
-      document.getElementById('full-layer')
-    )
-  : { map: null, panTo: () => {}, startPlay: () => {}, stopPlay: () => {}, refresh: () => {} };
+const radarFull = createRadar(
+  document.getElementById('radar-full'),
+  document.getElementById('full-timeline'),
+  document.getElementById('full-play'),
+  document.getElementById('full-timestamp'),
+  document.getElementById('full-layer')
+);
 
 function createOverviewMap(mapEl) {
   const map = L.map(mapEl, {
@@ -803,29 +743,59 @@ function refreshMapsOverview() {
 
   if (!state.currentCity) return;
 
-  const zoom = mapsOverview.map.getZoom ? mapsOverview.map.getZoom() : 6;
-  mapsOverview.panTo(state.currentCity.latitude, state.currentCity.longitude, zoom || 6);
+  mapsOverview.panTo(state.currentCity.latitude, state.currentCity.longitude, 6);
 
   clearLightningMarkers();
   clearWindArrows();
-  clearAqiMarkers();
-  clearAlertMarkers();
-  clearSunMoonMarkers();
-  clearTempMarker();
 
-  if (state.showLightning || state.unifiedMapLayers.lightning) renderLightningStrikes(state.currentCity);
-  if ((state.showWind || state.unifiedMapLayers.wind) && state.currentWeather) renderWindArrows(state.currentCity);
-  renderAqiMarker(state.currentCity);
-  renderAlertMarker(state.currentCity);
-  renderTempMarker(state.currentCity);
-  renderSunMoonMarker(state.currentCity);
+  if (state.showLightning) renderLightningStrikes(state.currentCity);
+  if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
 }
 
 function renderLightningStrikes(city) {
   if (!mapsOverview.map || !state.showLightning) return;
   clearLightningMarkers();
 
-  // Simulated strikes were removed. Only live strike feeds should render here.
+  // Simulate lightning strikes in the vicinity of the city
+  // In production, this would fetch from a real lightning API like Blitzortung
+  const strokeCount = 5 + Math.random() * 3; // Random 5-8 strikes
+  const maxRadius = 0.35;
+
+  for (let i = 0; i < strokeCount; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = Math.random() * maxRadius;
+    const latOffset = Math.cos(angle) * radius;
+    const lonOffset = Math.sin(angle) * radius;
+    const lat = parseFloat(city.latitude) + latOffset;
+    const lon = parseFloat(city.longitude) + lonOffset;
+
+    const marker = L.circleMarker([lat, lon], {
+      radius: 3 + Math.random() * 3,
+      fillColor: '#ffeb3b',
+      fillOpacity: 0.7 + Math.random() * 0.3,
+      color: '#ff6f00',
+      weight: 1.5,
+      className: 'lightning-marker',
+    }).bindPopup('⚡ Lightning strike (simulated)');
+
+    marker.addTo(mapsOverview.map);
+    state.lightningMarkers.push(marker);
+
+    // Animate the marker to fade out
+    setTimeout(() => {
+      if (marker && mapsOverview.map.hasLayer(marker)) {
+        const fade = setInterval(() => {
+          const opacity = parseFloat(marker.options.fillOpacity) - 0.05;
+          if (opacity <= 0) {
+            clearInterval(fade);
+            mapsOverview.map.removeLayer(marker);
+          } else {
+            marker.setStyle({ fillOpacity: opacity });
+          }
+        }, 200);
+      }
+    }, 3000);
+  }
 }
 
 function renderWindArrows(city) {
@@ -841,51 +811,46 @@ function renderWindArrows(city) {
   const windDir = current.wind_direction_10m || 0;
   
   // Update wind data display
-  const windSpeedEl = document.getElementById('wind-speed');
-  const windGustEl = document.getElementById('wind-gust');
-  const windDirectionEl = document.getElementById('wind-direction');
-  if (windSpeedEl) windSpeedEl.textContent = `${speedDisplay(windSpeed)} ${speedUnit()}`;
-  if (windGustEl) windGustEl.textContent = windGust > 0 ? `${speedDisplay(windGust)} ${speedUnit()}` : '--';
-  if (windDirectionEl) windDirectionEl.textContent = compassDirFull(windDir);
+  document.getElementById('wind-speed').textContent = `${speedDisplay(windSpeed)} ${speedUnit()}`;
+  document.getElementById('wind-gust').textContent = windGust > 0 ? `${speedDisplay(windGust)} ${speedUnit()}` : '--';
+  document.getElementById('wind-direction').textContent = compassDirFull(windDir);
   
-  // Draw a denser set of arrows around the city center for richer wind context.
+  // Draw multiple wind barbs around the city center to show wind strength
   const lat = parseFloat(city.latitude);
   const lon = parseFloat(city.longitude);
-  const arrowCount = Math.max(3, Math.min(9, Math.ceil(windSpeed / 3))); // 3-9 arrows
-  const baseRadius = 0.12;
-
+  const arrowCount = Math.min(Math.ceil(windSpeed / 5), 5); // More arrows = stronger wind
+  const baseRadius = 0.15;
+  
   for (let i = 0; i < arrowCount; i++) {
-    const bandPos = i - (arrowCount - 1) / 2;
-    const offsetLat = lat + (bandPos * 0.045);
-    const offsetLon = lon + (Math.abs(bandPos) % 2 ? 0.025 : -0.025);
+    const offset = (i - arrowCount / 2) * 0.08;
+    const offsetLat = lat + offset;
+    const offsetLon = lon;
     
     // Calculate arrow end point based on wind direction
     const radians = (windDir * Math.PI) / 180;
-    const arrowLength = baseRadius + (Math.abs(bandPos) * 0.028) + Math.min(windSpeed / 120, 0.08);
+    const arrowLength = 0.15 + i * 0.05;
     const endLat = offsetLat + arrowLength * Math.cos(radians);
     const endLon = offsetLon + arrowLength * Math.sin(radians);
     
     // Draw arrow line with gradient color based on wind speed
-    const color = windSpeed > 20 ? '#ff3333' : windSpeed > 10 ? '#ffaa00' : '#4a90e2';
-    const weight = 2.5 + (i % 2);
+    const color = windSpeed > 20 ? '#ff4444' : windSpeed > 10 ? '#ffaa00' : '#4a90e2';
+    const weight = 1 + (i % 2);
     
     const arrow = L.polyline(
       [[offsetLat, offsetLon], [endLat, endLon]],
       {
         color: color,
         weight: weight,
-        opacity: 1.0,
+        opacity: 0.7,
         smooth: true,
       }
-    ).bindPopup(
-      `💨 Wind: ${speedDisplay(windSpeed)} ${speedUnit()}<br>Gust: ${windGust > 0 ? `${speedDisplay(windGust)} ${speedUnit()}` : '--'}<br>Direction: ${compassDirFull(windDir)} (${Math.round(windDir)}°)`
-    );
+    ).bindPopup(`💨 Wind: ${speedDisplay(windSpeed)} ${speedUnit()}<br>Direction: ${compassDirFull(windDir)}`);
     
     arrow.addTo(mapsOverview.map);
     state.windArrows.push(arrow);
     
     // Draw arrow head
-    const headSize = 0.05;
+    const headSize = 0.03;
     const arrowHeadLat1 = endLat - headSize * Math.cos(radians + Math.PI * 0.15);
     const arrowHeadLon1 = endLon - headSize * Math.sin(radians + Math.PI * 0.15);
     const arrowHeadLat2 = endLat - headSize * Math.cos(radians - Math.PI * 0.15);
@@ -896,7 +861,7 @@ function renderWindArrows(city) {
       {
         color: color,
         weight: weight,
-        opacity: 1.0,
+        opacity: 0.7,
       }
     );
     
@@ -905,159 +870,9 @@ function renderWindArrows(city) {
   }
 }
 
-function clearAqiMarkers() {
-  if (!mapsOverview.map) return;
-  state.aqiMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
-  state.aqiMarkers = [];
-}
-
-function clearAlertMarkers() {
-  if (!mapsOverview.map) return;
-  state.alertMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
-  state.alertMarkers = [];
-}
-
-function clearSunMoonMarkers() {
-  if (!mapsOverview.map) return;
-  state.sunMoonMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
-  state.sunMoonMarkers = [];
-}
-
-function clearTempMarker() {
-  if (!mapsOverview.map || !state.tempMarker) return;
-  mapsOverview.map.removeLayer(state.tempMarker);
-  state.tempMarker = null;
-}
-
-function renderAqiMarker(city) {
-  if (!mapsOverview.map || !state.unifiedMapLayers.aqi || !state.currentAir?.current) return;
-  clearAqiMarkers();
-  const aqi = state.currentAir.current.us_aqi;
-  if (aqi == null) return;
-  const color = aqi > 150 ? '#d32f2f' : aqi > 100 ? '#f57c00' : aqi > 50 ? '#fbc02d' : '#388e3c';
-  const aqiLat = Number(city.latitude) - 0.045;
-  const aqiLon = Number(city.longitude) - 0.06;
-  const marker = L.circleMarker([aqiLat, aqiLon], {
-    radius: 9,
-    fillColor: color,
-    fillOpacity: 0.85,
-    color: '#fff',
-    weight: 2,
-  }).bindPopup(`AQI ${aqi}`);
-  marker.bindTooltip(`AQI ${aqi}`, {
-    permanent: true,
-    direction: 'left',
-    offset: [-10, 0],
-    className: 'map-label map-label-aqi',
-    opacity: 0.95,
-  });
-  marker.addTo(mapsOverview.map);
-  state.aqiMarkers.push(marker);
-}
-
-function renderAlertMarker(city) {
-  if (!mapsOverview.map || !state.unifiedMapLayers.alerts || !state.currentAlerts?.features?.length) return;
-  clearAlertMarkers();
-  const marker = L.circleMarker([city.latitude, city.longitude], {
-    radius: 10,
-    fillColor: '#d32f2f',
-    fillOpacity: 0.8,
-    color: '#fff',
-    weight: 2,
-  }).bindPopup(`${state.currentAlerts.features.length} active alert(s)`);
-  marker.addTo(mapsOverview.map);
-  state.alertMarkers.push(marker);
-}
-
-function renderTempMarker(city) {
-  if (!mapsOverview.map || !state.unifiedMapLayers.temp || !state.currentWeather?.current) return;
-  clearTempMarker();
-  const temp = tempDisplay(state.currentWeather.current.temperature_2m);
-  const tempLat = Number(city.latitude) + 0.05;
-  const tempLon = Number(city.longitude) - 0.055;
-  const marker = L.circleMarker([tempLat, tempLon], {
-    radius: 11,
-    fillColor: '#1e88e5',
-    fillOpacity: 0.9,
-    color: '#fff',
-    weight: 2,
-  }).bindPopup(`${temp}°${tempUnit()}`);
-  marker.bindTooltip(`${temp}°${tempUnit()}`, {
-    permanent: true,
-    direction: 'right',
-    offset: [10, 0],
-    className: 'map-label map-label-temp',
-    opacity: 0.95,
-  });
-  marker.addTo(mapsOverview.map);
-  state.tempMarker = marker;
-}
-
-function renderSunMoonMarker(city) {
-  if (!mapsOverview.map || !state.unifiedMapLayers.sunMoon || !state.currentWeather?.daily) return;
-  clearSunMoonMarkers();
-  const daily = state.currentWeather.daily;
-  const sunrise = formatClock(daily.sunrise?.[0]);
-  const sunset = formatClock(daily.sunset?.[0]);
-  const smLat = Number(city.latitude) + 0.05;
-  const smLon = Number(city.longitude) + 0.06;
-  const marker = L.circleMarker([smLat, smLon], {
-    radius: 8,
-    fillColor: '#fbc02d',
-    fillOpacity: 0.8,
-    color: '#fff',
-    weight: 2,
-  }).bindPopup(`Sunrise: ${sunrise}<br>Sunset: ${sunset}`);
-  marker.bindTooltip(`☀ ${sunrise} • 🌙 ${sunset}`, {
-    permanent: true,
-    direction: 'top',
-    offset: [0, -10],
-    className: 'map-label map-label-sunmoon',
-    opacity: 0.95,
-  });
-  marker.addTo(mapsOverview.map);
-  state.sunMoonMarkers.push(marker);
-}
-
-const unifiedMapModeButton = document.createElement('button');
-let unifiedMapMode = 'radar';
-
-const unifiedMapEl = document.getElementById('unified-map');
-const legacyMapEl = document.getElementById('map-overview');
-const mapsOverview = unifiedMapEl
-  ? createRadar(
-      unifiedMapEl,
-      document.getElementById('timeline-slider'),
-      document.getElementById('timeline-play'),
-      document.getElementById('timeline-timestamp'),
-      unifiedMapModeButton
-    )
-  : (legacyMapEl
-      ? createOverviewMap(legacyMapEl)
-      : { map: null, panTo: () => {}, refresh: () => {} });
-
-const unifiedMap = mapsOverview;
-
-unifiedMapModeButton.addEventListener('click', () => {
-  unifiedMapMode = unifiedMapMode === 'radar' ? 'satellite' : 'radar';
-  localStorage.setItem(STORAGE_KEYS.unifiedMapRadarMode, unifiedMapMode);
-});
-
-if (unifiedMapEl && state.unifiedMapRadarMode === 'satellite') {
-  unifiedMapModeButton.click();
-}
+const mapsOverview = createOverviewMap(document.getElementById('map-overview'));
 
 // ── Rendering ────────────────────────────────────────────────────────────────
-function setMapOverlayReadouts({ temp, aqi, sunmoon } = {}) {
-  const tempEl = document.getElementById('overlay-temp');
-  const aqiEl = document.getElementById('overlay-aqi');
-  const sunmoonEl = document.getElementById('overlay-sunmoon');
-
-  if (tempEl && temp != null && temp !== '') tempEl.textContent = `Temp ${temp}`;
-  if (aqiEl && aqi != null && aqi !== '') aqiEl.textContent = `AQI ${aqi}`;
-  if (sunmoonEl && sunmoon) sunmoonEl.textContent = sunmoon;
-}
-
 function renderWeather(data, city) {
   const c = data.current;
   const h = data.hourly;
@@ -1088,21 +903,6 @@ function renderWeather(data, city) {
   document.getElementById('cur-dew').textContent = calcDewpoint(c.temperature_2m, c.relative_humidity_2m);
   document.getElementById('cur-pres').textContent = Math.round(c.surface_pressure);
   document.getElementById('cur-vis').textContent = visDisplay(c.visibility);
-
-  const panelLocation = document.getElementById('panel-location-name');
-  const panelWindSpeed = document.getElementById('panel-wind-speed');
-  const panelWindDir = document.getElementById('panel-wind-dir');
-  const panelTemp = document.getElementById('panel-temp');
-  const panelAqi = document.getElementById('panel-aqi');
-  const panelCloud = document.getElementById('panel-cloud');
-  const panelWrap = document.getElementById('data-panel');
-  if (panelLocation) panelLocation.textContent = cityLabel(city) || city.name || '--';
-  if (panelWindSpeed) panelWindSpeed.textContent = `${speedDisplay(c.wind_speed_10m)} ${speedUnit()}`;
-  if (panelWindDir) panelWindDir.textContent = compassDirFull(c.wind_direction_10m || 0);
-  if (panelTemp) panelTemp.textContent = `${tempDisplay(c.temperature_2m)}°${tempUnit()}`;
-  if (panelAqi) panelAqi.textContent = state.currentAir?.current?.us_aqi ?? '--';
-  if (panelCloud) panelCloud.textContent = c.cloud_cover != null ? `${Math.round(c.cloud_cover)}%` : '--';
-  if (panelWrap) panelWrap.classList.remove('hidden');
   document.getElementById('cur-uv').textContent = Math.round(d.uv_index_max[0] ?? 0);
   document.getElementById('cur-cloud').textContent = c.cloud_cover;
   document.querySelectorAll('.wind-unit, .gust-unit').forEach(el => el.textContent = speedUnit());
@@ -1111,13 +911,6 @@ function renderWeather(data, city) {
   document.getElementById('sunrise-val').textContent = formatClock(d.sunrise[0]);
   document.getElementById('sunset-val').textContent = formatClock(d.sunset[0]);
   document.getElementById('moon-phase-val').textContent = moonPhase(d.time[0]);
-
-  const sunriseLabel = formatClock(d.sunrise[0]);
-  const sunsetLabel = formatClock(d.sunset[0]);
-  setMapOverlayReadouts({
-    temp: `${tempDisplay(c.temperature_2m)}°${tempUnit()}`,
-    sunmoon: `Sun ${sunriseLabel}/${sunsetLabel}`,
-  });
 
   // Sun timeline progress
   const sunriseMs = new Date(d.sunrise[0]).getTime();
@@ -1163,8 +956,7 @@ function renderWeather(data, city) {
 
   radarEmbed.panTo(city.latitude, city.longitude, 6);
   radarFull.panTo(city.latitude, city.longitude, 6);
-  const mapZoom = mapsOverview?.map?.getZoom ? mapsOverview.map.getZoom() : 6;
-  mapsOverview.panTo(city.latitude, city.longitude, mapZoom || 6);
+  mapsOverview.panTo(city.latitude, city.longitude, 6);
   if (mapsWindEl) mapsWindEl.textContent = `${speedDisplay(c.wind_speed_10m)} ${speedUnit()} ${compassDir(c.wind_direction_10m)}`;
   updateSourceLocation(city);
   updateShareUrl(city);
@@ -1220,237 +1012,6 @@ function renderAirQuality(data) {
   document.getElementById('aqi-us').textContent = cur.us_aqi ?? '--';
   document.getElementById('pm25').textContent = cur.pm2_5 != null ? `${Number(cur.pm2_5).toFixed(1)} ug/m3` : '--';
   document.getElementById('pollen').textContent = pollen > 0 ? pollen.toFixed(1) : '--';
-
-  const panelAqi = document.getElementById('panel-aqi');
-  if (panelAqi) panelAqi.textContent = cur.us_aqi ?? '--';
-
-  setMapOverlayReadouts({ aqi: cur.us_aqi ?? '--' });
-}
-
-function normalizeSeverity(severity) {
-  const s = String(severity || 'Unknown').toLowerCase();
-  if (s.includes('extreme')) return 'Extreme';
-  if (s.includes('severe')) return 'Severe';
-  if (s.includes('moderate')) return 'Moderate';
-  if (s.includes('minor')) return 'Minor';
-  return 'Unknown';
-}
-
-function severityRank(severity) {
-  const map = { Extreme: 0, Severe: 1, Moderate: 2, Minor: 3, Unknown: 4 };
-  return map[severity] ?? 4;
-}
-
-function plainAlertAction(eventName, severity) {
-  const eventText = String(eventName || '').toLowerCase();
-  const sev = normalizeSeverity(severity);
-  if (eventText.includes('tornado')) return 'Move to an interior room on the lowest level away from windows immediately.';
-  if (eventText.includes('thunderstorm')) return 'Pause outdoor activity, secure loose items, and be ready to shelter indoors quickly.';
-  if (eventText.includes('flood')) return 'Avoid low-water crossings and reroute away from flood-prone roads.';
-  if (eventText.includes('winter') || eventText.includes('snow') || eventText.includes('ice') || eventText.includes('blizzard')) return 'Delay travel if possible and prepare for slick roads and slower stopping distances.';
-  if (eventText.includes('heat')) return 'Hydrate often, reduce exertion, and seek shade or cooling when possible.';
-  if (eventText.includes('wind')) return 'Secure outdoor objects and use extra caution when driving high-profile vehicles.';
-  if (eventText.includes('fire') || eventText.includes('red flag')) return 'Avoid sparks or open flame sources and follow local fire restrictions.';
-  if (sev === 'Extreme' || sev === 'Severe') return 'Treat this as high risk and take protective action now.';
-  if (sev === 'Moderate') return 'Use caution and adjust plans to reduce exposure to hazardous conditions.';
-  return 'Stay aware of updates and keep backup plans ready.';
-}
-
-function buildAlertTiming(p) {
-  const start = p?.onset || p?.effective || p?.sent;
-  const end = p?.expires;
-  const startTxt = start ? formatClock(start) : 'now';
-  const endTxt = end ? formatClock(end) : 'until further notice';
-  return `${startTxt} - ${endTxt}`;
-}
-
-function buildStormEtaText() {
-  const nowMs = Date.now();
-  const alertTimes = (state.currentAlerts?.features || [])
-    .map(f => {
-      const p = f.properties || {};
-      return new Date(p.onset || p.effective || p.sent || 0).getTime();
-    })
-    .filter(ms => Number.isFinite(ms) && ms > nowMs)
-    .sort((a, b) => a - b);
-  if (alertTimes.length) {
-    const mins = Math.max(1, Math.round((alertTimes[0] - nowMs) / 60000));
-    if (mins < 60) return `~${mins} min`;
-    return `~${Math.round(mins / 60)} hr`;
-  }
-
-  const h = state.currentWeather?.hourly;
-  if (!h?.time || !h?.weather_code) return 'No storm signal in next 24h';
-  for (let i = 0; i < h.time.length && i < 24; i++) {
-    const ts = new Date(h.time[i]).getTime();
-    if (ts < nowMs) continue;
-    if (Number(h.weather_code[i]) >= 95) {
-      const mins = Math.max(1, Math.round((ts - nowMs) / 60000));
-      return mins < 60 ? `~${mins} min` : `~${Math.round(mins / 60)} hr`;
-    }
-  }
-  return 'No storm signal in next 24h';
-}
-
-function computeRiskLabel() {
-  const severities = (state.currentAlerts?.features || []).map(f => normalizeSeverity(f.properties?.severity));
-  if (severities.some(s => s === 'Extreme' || s === 'Severe')) return 'High';
-  if (severities.some(s => s === 'Moderate')) return 'Elevated';
-  if (severities.some(s => s === 'Minor')) return 'Guarded';
-  return 'Low';
-}
-
-function buildShareChecklist(risk) {
-  if (risk === 'High') return ['Have shelter plan ready', 'Delay non-essential travel', 'Keep devices fully charged'];
-  if (risk === 'Elevated') return ['Monitor radar and alerts hourly', 'Adjust outdoor timing', 'Secure loose outdoor items'];
-  if (risk === 'Guarded') return ['Use caution for outdoor plans', 'Keep backup indoor option', 'Recheck before departure'];
-  return ['Good conditions overall', 'Check updates before longer trips', 'Carry normal weather gear'];
-}
-
-function buildWeatherCardText() {
-  const city = cityLabel(state.currentCity) || 'Selected location';
-  const c = state.currentWeather?.current || {};
-  const currentAqi = state.currentAir?.current?.us_aqi ?? '--';
-  const risk = computeRiskLabel();
-  const eta = buildStormEtaText();
-  const alerts = state.currentAlerts?.features || [];
-  const checklist = buildShareChecklist(risk);
-
-  const lines = [
-    `Weather Card: ${city}`,
-    `Temp: ${tempDisplay(c.temperature_2m)}°${tempUnit()} (Feels ${tempDisplay(c.apparent_temperature)}°${tempUnit()})`,
-    `Wind: ${speedDisplay(c.wind_speed_10m)} ${speedUnit()} ${compassDirFull(c.wind_direction_10m || 0)}`,
-    `AQI: ${currentAqi}`,
-    `Storm ETA: ${eta}`,
-    `Risk Level: ${risk}`,
-    `Active Alerts: ${alerts.length}`,
-    'Checklist:',
-    ...checklist.map(item => `- ${item}`),
-  ];
-  return lines.join('\n');
-}
-
-function buildHeroCardText() {
-  const city = cityLabel(state.currentCity) || 'Selected location';
-  const c = state.currentWeather?.current || {};
-  const w = wmo(c.weather_code);
-  const risk = computeRiskLabel();
-  const currentAqi = state.currentAir?.current?.us_aqi ?? '--';
-  return [
-    `Now in ${city}`,
-    `${w.icon} ${w.desc}`,
-    `Temp ${tempDisplay(c.temperature_2m)}°${tempUnit()} (Feels ${tempDisplay(c.apparent_temperature)}°${tempUnit()})`,
-    `High ${tempDisplay(state.currentWeather?.daily?.temperature_2m_max?.[0])}°${tempUnit()} / Low ${tempDisplay(state.currentWeather?.daily?.temperature_2m_min?.[0])}°${tempUnit()}`,
-    `Wind ${speedDisplay(c.wind_speed_10m)} ${speedUnit()} ${compassDirFull(c.wind_direction_10m || 0)}`,
-    `AQI ${currentAqi} | Risk ${risk}`,
-  ].join('\n');
-}
-
-function drawRoundedRect(ctx, x, y, w, h, r) {
-  const radius = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + w - radius, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-  ctx.lineTo(x + w, y + h - radius);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-  ctx.lineTo(x + radius, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
-  ctx.closePath();
-}
-
-function canvasToPngBlob(canvas) {
-  return new Promise(resolve => {
-    canvas.toBlob(blob => resolve(blob), 'image/png');
-  });
-}
-
-async function buildHeroCardImageFile() {
-  const city = cityLabel(state.currentCity) || 'Selected location';
-  const c = state.currentWeather?.current || {};
-  const d = state.currentWeather?.daily || {};
-  const w = wmo(c.weather_code);
-  const currentAqi = state.currentAir?.current?.us_aqi ?? '--';
-  const risk = computeRiskLabel();
-
-  const canvas = document.createElement('canvas');
-  canvas.width = 1080;
-  canvas.height = 1350;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  const bg = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-  bg.addColorStop(0, '#1f2a38');
-  bg.addColorStop(1, '#334e68');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
-  drawRoundedRect(ctx, 56, 56, canvas.width - 112, canvas.height - 112, 38);
-  ctx.fill();
-
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '700 68px Segoe UI';
-  ctx.fillText('Weather Hero Card', 96, 156);
-
-  ctx.font = '600 42px Segoe UI';
-  ctx.fillStyle = '#dbeafe';
-  ctx.fillText(city, 96, 222);
-
-  ctx.font = '600 120px Segoe UI Emoji, Segoe UI';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(w.icon || '⛅', 96, 390);
-
-  ctx.font = '700 64px Segoe UI';
-  ctx.fillText(`${tempDisplay(c.temperature_2m)}°${tempUnit()}`, 250, 362);
-
-  ctx.font = '500 36px Segoe UI';
-  ctx.fillStyle = '#e2e8f0';
-  ctx.fillText(`${w.desc}`, 250, 412);
-  ctx.fillText(`Feels ${tempDisplay(c.apparent_temperature)}°${tempUnit()}`, 250, 458);
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-  drawRoundedRect(ctx, 96, 520, canvas.width - 192, 460, 28);
-  ctx.fill();
-
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '600 36px Segoe UI';
-  ctx.fillText(`High / Low: ${tempDisplay(d.temperature_2m_max?.[0])}°${tempUnit()} / ${tempDisplay(d.temperature_2m_min?.[0])}°${tempUnit()}`, 132, 610);
-  ctx.fillText(`Wind: ${speedDisplay(c.wind_speed_10m)} ${speedUnit()} ${compassDirFull(c.wind_direction_10m || 0)}`, 132, 684);
-  ctx.fillText(`AQI: ${currentAqi}`, 132, 758);
-  ctx.fillText(`Risk level: ${risk}`, 132, 832);
-  ctx.fillText(`Shared: ${new Date().toLocaleString()}`, 132, 906);
-
-  ctx.fillStyle = '#cbd5e1';
-  ctx.font = '500 30px Segoe UI';
-  ctx.fillText('Open full details and alerts in app link below.', 96, 1080);
-  ctx.fillText(window.location.href, 96, 1130);
-
-  const blob = await canvasToPngBlob(canvas);
-  if (!blob) return null;
-  return new File([blob], `hero-weather-${Date.now()}.png`, { type: 'image/png' });
-}
-
-function showHeroShareStatus(msg) {
-  if (!shareHeroStatusEl) return;
-  shareHeroStatusEl.textContent = msg;
-  show(shareHeroStatusEl);
-  setTimeout(() => {
-    shareHeroStatusEl.textContent = '';
-    hide(shareHeroStatusEl);
-  }, 2200);
-}
-
-function showShareWeatherStatus(msg) {
-  if (!shareWeatherStatusEl) return;
-  shareWeatherStatusEl.textContent = msg;
-  show(shareWeatherStatusEl);
-  setTimeout(() => {
-    shareWeatherStatusEl.textContent = '';
-    hide(shareWeatherStatusEl);
-  }, 2200);
 }
 
 function renderAlerts(data) {
@@ -1467,68 +1028,13 @@ function renderAlerts(data) {
 
   if (alertsEmptyEl) hide(alertsEmptyEl);
 
-  const grouped = new Map();
-  features.forEach(f => {
+  features.slice(0, 5).forEach(f => {
     const p = f.properties || {};
-    const sev = normalizeSeverity(p.severity);
-    if (!grouped.has(sev)) grouped.set(sev, []);
-    grouped.get(sev).push(f);
+    const item = document.createElement('div');
+    item.className = 'alert-item';
+    item.innerHTML = `<strong>${p.event || 'Alert'}</strong><span>${p.severity || 'Unknown severity'}</span><span>${p.headline || p.description || ''}</span>`;
+    list.appendChild(item);
   });
-
-  Array.from(grouped.keys())
-    .sort((a, b) => severityRank(a) - severityRank(b))
-    .forEach(severity => {
-      const groupWrap = document.createElement('section');
-      groupWrap.className = `alerts-group alerts-group-${severity.toLowerCase()}`;
-
-      const head = document.createElement('div');
-      head.className = 'alerts-group-head';
-      const title = document.createElement('h5');
-      title.className = 'alerts-group-title';
-      title.textContent = `${severity} Alerts (${grouped.get(severity).length})`;
-      const hint = document.createElement('span');
-      hint.className = 'alerts-group-hint';
-      hint.textContent = severityRank(severity) <= 1 ? 'Take action now' : 'Use caution';
-      head.appendChild(title);
-      head.appendChild(hint);
-      groupWrap.appendChild(head);
-
-      grouped.get(severity).slice(0, 6).forEach(f => {
-        const p = f.properties || {};
-        const card = document.createElement('article');
-        card.className = 'alert-item';
-
-        const top = document.createElement('div');
-        top.className = 'alert-top';
-        const event = document.createElement('strong');
-        event.textContent = p.event || 'Alert';
-        const sev = document.createElement('span');
-        sev.className = `alert-severity severity-${normalizeSeverity(p.severity).toLowerCase()}`;
-        sev.textContent = normalizeSeverity(p.severity);
-        top.appendChild(event);
-        top.appendChild(sev);
-
-        const timing = document.createElement('div');
-        timing.className = 'alert-timing';
-        timing.textContent = `Window: ${buildAlertTiming(p)}`;
-
-        const msg = document.createElement('div');
-        msg.className = 'alert-message';
-        msg.textContent = p.headline || p.description || 'See official sources for details.';
-
-        const action = document.createElement('div');
-        action.className = 'alert-action';
-        action.textContent = `What this means for me: ${plainAlertAction(p.event, p.severity)}`;
-
-        card.appendChild(top);
-        card.appendChild(timing);
-        card.appendChild(msg);
-        card.appendChild(action);
-        groupWrap.appendChild(card);
-      });
-
-      list.appendChild(groupWrap);
-    });
   show(wrap);
 
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
@@ -1583,7 +1089,6 @@ async function loadAll(city, source) {
 
     state.currentWeather = weather;
     state.currentAir = air;
-    state.currentAlerts = alerts;
     state.lastRefreshAt = Date.now();
 
     // Keep weather load resilient: map/radar/render hiccups should not fail the whole page.
@@ -1607,12 +1112,8 @@ async function loadAll(city, source) {
     }
     
     try {
-      if (state.showLightning || state.unifiedMapLayers.lightning) renderLightningStrikes(city);
-      if (state.showWind || state.unifiedMapLayers.wind) renderWindArrows(city);
-      renderAqiMarker(city);
-      renderAlertMarker(city);
-      renderTempMarker(city);
-      renderSunMoonMarker(city);
+      if (state.showLightning) renderLightningStrikes(city);
+      if (state.showWind) renderWindArrows(city);
     } catch (mapOverlayErr) {
       console.warn('Map overlay render error:', mapOverlayErr);
     }
@@ -1757,73 +1258,6 @@ shareBtn.addEventListener('click', async () => {
   }
 });
 
-if (shareWeatherCardBtn) {
-  shareWeatherCardBtn.addEventListener('click', async () => {
-    if (!state.currentCity || !state.currentWeather) {
-      showErr('Load a location first to share a weather card.');
-      return;
-    }
-
-    const text = buildWeatherCardText();
-    const payload = {
-      title: `Weather card: ${cityLabel(state.currentCity) || 'Location'}`,
-      text,
-      url: window.location.href,
-    };
-
-    try {
-      if (navigator.share) {
-        await navigator.share(payload);
-        showShareWeatherStatus('Shared weather card');
-        return;
-      }
-
-      await navigator.clipboard.writeText(`${text}\n\n${window.location.href}`);
-      showShareWeatherStatus('Weather card copied');
-    } catch (err) {
-      if (err && err.name === 'AbortError') return;
-      showErr('Could not share weather card.');
-    }
-  });
-}
-
-if (shareHeroBtn) {
-  shareHeroBtn.addEventListener('click', async () => {
-    if (!state.currentCity || !state.currentWeather) {
-      showErr('Load a location first to share hero conditions.');
-      return;
-    }
-
-    const text = buildHeroCardText();
-    const title = `Now: ${cityLabel(state.currentCity) || 'Location'}`;
-
-    try {
-      const imageFile = await buildHeroCardImageFile();
-
-      if (navigator.share && imageFile) {
-        const filePayload = { title, text, files: [imageFile] };
-        if (!navigator.canShare || navigator.canShare({ files: [imageFile] })) {
-          await navigator.share(filePayload);
-          showHeroShareStatus('Shared hero image');
-          return;
-        }
-      }
-
-      if (navigator.share) {
-        await navigator.share({ title, text, url: window.location.href });
-        showHeroShareStatus('Shared hero card');
-        return;
-      }
-
-      await navigator.clipboard.writeText(`${text}\n\n${window.location.href}`);
-      showHeroShareStatus('Hero card copied');
-    } catch (err) {
-      if (err && err.name === 'AbortError') return;
-      showErr('Could not share hero card.');
-    }
-  });
-}
-
 saveCurrentBtn.addEventListener('click', () => {
   if (!state.currentCity) return;
   const key = cityKey(state.currentCity);
@@ -1867,27 +1301,23 @@ autoDetectToggle.addEventListener('change', () => {
   localStorage.setItem(STORAGE_KEYS.autoDetect, String(state.autoDetect));
 });
 
-if (lightningToggle) {
-  lightningToggle.addEventListener('change', () => {
-    state.showLightning = lightningToggle.checked;
-    localStorage.setItem(STORAGE_KEYS.showLightning, String(state.showLightning));
-    if (state.currentCity && mapsOverview.map) {
-      clearLightningMarkers();
-      if (state.showLightning) renderLightningStrikes(state.currentCity);
-    }
-  });
-}
+lightningToggle.addEventListener('change', () => {
+  state.showLightning = lightningToggle.checked;
+  localStorage.setItem(STORAGE_KEYS.showLightning, String(state.showLightning));
+  if (state.currentCity && mapsOverview.map) {
+    clearLightningMarkers();
+    if (state.showLightning) renderLightningStrikes(state.currentCity);
+  }
+});
 
-if (windToggle) {
-  windToggle.addEventListener('change', () => {
-    state.showWind = windToggle.checked;
-    localStorage.setItem(STORAGE_KEYS.showWind, String(state.showWind));
-    if (state.currentCity && mapsOverview.map) {
-      clearWindArrows();
-      if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
-    }
-  });
-}
+windToggle.addEventListener('change', () => {
+  state.showWind = windToggle.checked;
+  localStorage.setItem(STORAGE_KEYS.showWind, String(state.showWind));
+  if (state.currentCity && mapsOverview.map) {
+    clearWindArrows();
+    if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
+  }
+});
 
 // Maps tab quick toggles
 const mapsLightningToggle = document.getElementById('maps-lightning-toggle');
@@ -1923,118 +1353,6 @@ if (mapsWindToggle) {
   mapsWindToggle.classList.toggle('active', state.showWind);
 }
 
-const mapLayerStorageKey = {
-  radar: STORAGE_KEYS.showRadarLayer,
-  satellite: STORAGE_KEYS.showSatelliteLayer,
-  lightning: STORAGE_KEYS.showLightningLayer,
-  wind: STORAGE_KEYS.showWindLayer,
-  aqi: STORAGE_KEYS.showAqiLayer,
-  alerts: STORAGE_KEYS.showAlertsLayer,
-  temp: STORAGE_KEYS.showTempMarker,
-  'sun-moon': STORAGE_KEYS.showSunMoonMarkers,
-};
-
-function setRadarLayerVisible(visible) {
-  if (!mapsOverview?.map) return;
-  mapsOverview.map.eachLayer(layer => {
-    if (!layer?._url) return;
-    const isRadarLayer =
-      layer._url.includes('nexrad-n0q-900913') ||
-      layer._url.includes('tilecache.rainviewer.com') ||
-      layer._url.includes('radar_base_reflectivity_time');
-    if (isRadarLayer) {
-      if (visible && !mapsOverview.map.hasLayer(layer)) mapsOverview.map.addLayer(layer);
-      if (!visible && mapsOverview.map.hasLayer(layer)) mapsOverview.map.removeLayer(layer);
-    }
-  });
-}
-
-function setCloudLayerVisible(visible) {
-  if (!mapsOverview?.map) return;
-  mapsOverview.map.eachLayer(layer => {
-    if (!layer?._url) return;
-    const isCloudLayer =
-      layer._url.includes('goes_') ||
-      layer._url.includes('/0/0_0.png') ||
-      layer._url.includes('sat_meteo_emulated');
-    if (isCloudLayer) {
-      if (visible && !mapsOverview.map.hasLayer(layer)) mapsOverview.map.addLayer(layer);
-      if (!visible && mapsOverview.map.hasLayer(layer)) mapsOverview.map.removeLayer(layer);
-    }
-  });
-}
-
-document.querySelectorAll('#tab-unified-map input[type="checkbox"][data-layer]').forEach(input => {
-  const layerName = input.dataset.layer;
-  input.checked = layerName === 'sun-moon'
-    ? state.unifiedMapLayers.sunMoon
-    : !!state.unifiedMapLayers[layerName];
-
-  input.addEventListener('change', () => {
-    const enabled = input.checked;
-    if (layerName === 'sun-moon') {
-      state.unifiedMapLayers.sunMoon = enabled;
-    } else {
-      state.unifiedMapLayers[layerName] = enabled;
-    }
-
-    const storageKey = mapLayerStorageKey[layerName];
-    if (storageKey) localStorage.setItem(storageKey, String(enabled));
-
-    if (layerName === 'radar') {
-      setRadarLayerVisible(enabled);
-      if (!enabled && unifiedMap?.stopPlay) unifiedMap.stopPlay();
-    }
-
-    if (layerName === 'satellite') {
-      if (enabled) {
-        if (unifiedMapMode !== 'satellite') unifiedMapModeButton.click();
-        setCloudLayerVisible(true);
-      } else {
-        setCloudLayerVisible(false);
-        if (unifiedMapMode !== 'radar') unifiedMapModeButton.click();
-      }
-    }
-
-    if (state.currentCity) refreshMapsOverview();
-  });
-});
-
-const baseMapSelect = document.getElementById('base-map-select');
-if (baseMapSelect) {
-  baseMapSelect.value = state.unifiedMapBaseLayer;
-  baseMapSelect.addEventListener('change', () => {
-    state.unifiedMapBaseLayer = baseMapSelect.value;
-    localStorage.setItem(STORAGE_KEYS.unifiedMapBaseLayer, state.unifiedMapBaseLayer);
-    if (state.currentCity) {
-      const city = state.currentCity;
-      const zoom = mapsOverview?.map?.getZoom?.() || 6;
-      if (mapsOverview?.map?.remove) mapsOverview.map.remove();
-      const replacement = createRadar(
-        document.getElementById('unified-map'),
-        document.getElementById('timeline-slider'),
-        document.getElementById('timeline-play'),
-        document.getElementById('timeline-timestamp'),
-        unifiedMapModeButton
-      );
-      Object.assign(mapsOverview, replacement);
-      mapsOverview.panTo(city.latitude, city.longitude, zoom);
-      refreshMapsOverview();
-    }
-  });
-}
-
-const layerMenuToggleBtn = document.getElementById('layer-menu-toggle');
-const layerMenuPanel = document.getElementById('layer-menu-panel');
-if (layerMenuToggleBtn && layerMenuPanel) {
-  layerMenuToggleBtn.addEventListener('click', () => {
-    const willShow = layerMenuPanel.classList.contains('hidden');
-    layerMenuPanel.classList.toggle('hidden', !willShow);
-    layerMenuToggleBtn.textContent = willShow ? 'Hide Layer Menu' : 'Show Layer Menu';
-    layerMenuToggleBtn.setAttribute('aria-expanded', willShow ? 'true' : 'false');
-  });
-}
-
 if (dailyToggleBtn) {
   dailyToggleBtn.addEventListener('click', () => {
     state.showExtendedForecast = !state.showExtendedForecast;
@@ -2062,21 +1380,17 @@ function startAutoRefresh() {
 
 // ── Default city / query link load ───────────────────────────────────────────
 (async () => {
+  await cleanupServiceWorkerInterceptors();
   updateUnitsButton();
   updateNotifyButton();
   syncAutoDetectToggle();
   
   // Sync lightning and wind toggle states
-  if (lightningToggle) lightningToggle.checked = state.showLightning;
-  if (windToggle) windToggle.checked = state.showWind;
+  lightningToggle.checked = state.showLightning;
+  windToggle.checked = state.showWind;
   
   renderSavedCities();
   startAutoRefresh();
-
-  const timelineControls = document.getElementById('timeline-controls');
-  if (timelineControls && unifiedMapEl) {
-    timelineControls.classList.remove('hidden');
-  }
 
   const qs = new URLSearchParams(window.location.search);
   const qLat = Number(qs.get('lat'));

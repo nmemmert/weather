@@ -1,16 +1,12 @@
 'use strict';
 
-self.addEventListener('message', event => {
-  if (event.data === 'skipWaiting') self.skipWaiting();
-});
+const CACHE = 'weather-v4';
 
-const CACHE = 'weather-v5';
-
-// App shell cached on install for offline resilience.
+// App shell — cached on install for offline use
 const PRECACHE = [
   '/',
-  '/app.js',
-  '/style.css',
+  '/app.js?v=4',
+  '/style.css?v=4',
   '/manifest.json',
   '/icons/icon.svg'
 ];
@@ -26,7 +22,9 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE).map(k => caches.delete(k))
+      ))
       .then(() => self.clients.claim())
   );
 });
@@ -35,7 +33,7 @@ self.addEventListener('fetch', event => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Never intercept API/tile traffic.
+  // Skip non-GET, API calls, and map/radar tile requests
   if (
     request.method !== 'GET' ||
     url.pathname.startsWith('/api/') ||
@@ -47,14 +45,14 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  const isShell =
+  const isAppShellRequest =
     request.mode === 'navigate' ||
     request.destination === 'document' ||
     request.destination === 'script' ||
     request.destination === 'style';
 
-  if (isShell) {
-    // Network-first keeps app updates fresh; cache as fallback.
+  // Prefer fresh app shell assets so UI updates are visible immediately.
+  if (isAppShellRequest) {
     event.respondWith(
       fetch(request)
         .then(response => {
@@ -69,11 +67,11 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Cache-first for static assets.
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;
       return fetch(request).then(response => {
+        // Only cache successful same-origin and trusted CDN responses
         if (response.ok && (
           url.origin === self.location.origin ||
           url.hostname.includes('googleapis') ||
@@ -85,6 +83,41 @@ self.addEventListener('fetch', event => {
         }
         return response;
       });
+    })
+  );
+});
+
+self.addEventListener('push', event => {
+  let payload = { title: 'Weather alert', body: 'New weather update available.', url: '/' };
+  try {
+    const data = event.data ? event.data.json() : null;
+    if (data) payload = { ...payload, ...data };
+  } catch {
+    // Ignore malformed payload and use defaults.
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: '/icons/icon.svg',
+      badge: '/icons/icon.svg',
+      data: { url: payload.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target = event.notification?.data?.url || '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+      const existing = windowClients.find(c => c.url.includes(self.location.origin));
+      if (existing) {
+        existing.focus();
+        existing.navigate(target);
+        return;
+      }
+      return clients.openWindow(target);
     })
   );
 });
