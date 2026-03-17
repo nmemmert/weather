@@ -31,51 +31,64 @@ const STORAGE_KEYS = {
   autoDetect: 'weather.autoDetect',
   showLightning: 'weather.showLightning',
   showWind: 'weather.showWind',
-  showRadarLayer: 'weather.map.radar',
-  showSatelliteLayer: 'weather.map.satellite',
-  showLightningLayer: 'weather.map.lightning',
-  showWindLayer: 'weather.map.wind',
-  showAqiLayer: 'weather.map.aqi',
-  showAlertsLayer: 'weather.map.alerts',
-  showTempMarker: 'weather.map.temp',
-  showSunMoonMarkers: 'weather.map.sunMoon',
-  unifiedMapBaseLayer: 'weather.map.baseLayer',
-  unifiedMapRadarMode: 'weather.map.radarMode',
+  defaultCity: 'weather.defaultCity',
+  highContrast: 'weather.highContrast',
+  radarOpacity: 'weather.radarOpacity',
+  lightningAgeMin: 'weather.lightningAgeMin',
 };
+
+function parseSavedCities(raw) {
+  try {
+    const parsed = JSON.parse(raw || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((entry) => {
+      if (entry && entry.city && typeof entry.city === 'object') {
+        return {
+          city: entry.city,
+          addedAt: entry.addedAt || Date.now(),
+          lastViewedAt: entry.lastViewedAt || null,
+          isDefault: Boolean(entry.isDefault),
+        };
+      }
+      return {
+        city: entry,
+        addedAt: Date.now(),
+        lastViewedAt: null,
+        isDefault: false,
+      };
+    }).filter(e => e.city && e.city.latitude != null && e.city.longitude != null);
+  } catch {
+    return [];
+  }
+}
 
 const state = {
   units: localStorage.getItem(STORAGE_KEYS.units) || 'us',
   autoDetect: localStorage.getItem(STORAGE_KEYS.autoDetect) !== 'false',
   showLightning: localStorage.getItem(STORAGE_KEYS.showLightning) !== 'false',
   showWind: localStorage.getItem(STORAGE_KEYS.showWind) !== 'false',
+  highContrast: localStorage.getItem(STORAGE_KEYS.highContrast) === 'true',
+  radarOpacity: Number(localStorage.getItem(STORAGE_KEYS.radarOpacity) || 65),
+  lightningAgeMin: Number(localStorage.getItem(STORAGE_KEYS.lightningAgeMin) || 15),
   currentCity: null,
   currentWeather: null,
   currentAir: null,
   currentSource: 'startup',
-  savedCities: JSON.parse(localStorage.getItem(STORAGE_KEYS.savedCities) || '[]'),
+  savedCities: parseSavedCities(localStorage.getItem(STORAGE_KEYS.savedCities)),
   alertIdsSeen: new Set(),
   autoRefreshTimer: null,
   lastRefreshAt: 0,
-  lightningMarkers: [],
+  lightningLayer: null,
   windArrows: [],
-  aqiMarkers: [],
-  alertMarkers: [],
-  tempMarker: null,
-  sunMoonMarkers: [],
-  showExtendedForecast: false,
-  unifiedMapLayers: {
-    radar: localStorage.getItem(STORAGE_KEYS.showRadarLayer) !== 'false',
-    satellite: localStorage.getItem(STORAGE_KEYS.showSatelliteLayer) !== 'false',
-    lightning: localStorage.getItem(STORAGE_KEYS.showLightningLayer) !== 'false',
-    wind: localStorage.getItem(STORAGE_KEYS.showWindLayer) !== 'false',
-    aqi: localStorage.getItem(STORAGE_KEYS.showAqiLayer) !== 'false',
-    alerts: localStorage.getItem(STORAGE_KEYS.showAlertsLayer) !== 'false',
-    temp: localStorage.getItem(STORAGE_KEYS.showTempMarker) !== 'false',
-    sunMoon: localStorage.getItem(STORAGE_KEYS.showSunMoonMarkers) !== 'false',
-  },
-  unifiedMapBaseLayer: localStorage.getItem(STORAGE_KEYS.unifiedMapBaseLayer) || 'dark',
-  unifiedMapRadarMode: localStorage.getItem(STORAGE_KEYS.unifiedMapRadarMode) || 'radar',
+  dailyExpanded: false,
+  pushSupported: false,
+  pushEnabled: false,
 };
+
+const persistedDefaultKey = localStorage.getItem(STORAGE_KEYS.defaultCity);
+if (persistedDefaultKey && state.savedCities.length && !state.savedCities.some(e => e.isDefault)) {
+  state.savedCities = state.savedCities.map(e => ({ ...e, isDefault: cityKey(e.city) === persistedDefaultKey }));
+}
 
 // ── DOM ──────────────────────────────────────────────────────────────────────
 const searchInput = document.getElementById('search-input');
@@ -98,8 +111,18 @@ const mapsLocationEl = document.getElementById('maps-location');
 const mapsWindEl = document.getElementById('maps-wind');
 const lightningToggle = document.getElementById('lightning-toggle');
 const windToggle = document.getElementById('wind-toggle');
-const dailyToggleBtn = document.getElementById('daily-toggle-btn');
+const lightningStatus = document.getElementById('lightning-status');
+const windStatus = document.getElementById('wind-status');
 const dailyForecastLabel = document.getElementById('daily-forecast-label');
+const dailyForecastToggle = document.getElementById('daily-forecast-toggle');
+const pushTestBtn = document.getElementById('push-test-btn');
+const hourlySummaryEl = document.getElementById('hourly-summary');
+const defaultCityEl = document.getElementById('default-city');
+const contrastToggle = document.getElementById('contrast-toggle');
+const contrastStatus = document.getElementById('contrast-status');
+const radarOpacityEl = document.getElementById('radar-opacity');
+const lightningAgeEl = document.getElementById('lightning-age');
+const mapsFullscreenBtn = document.getElementById('maps-fullscreen-btn');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const show = el => el.classList.remove('hidden');
@@ -109,10 +132,6 @@ const clearErr = () => { errorMsg.textContent = ''; hide(errorMsg); };
 
 function compassDir(deg) {
   return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg / 45) % 8];
-}
-
-function compassDirFull(deg) {
-  return ['North','Northeast','East','Southeast','South','Southwest','West','Northwest'][Math.round(deg / 45) % 8];
 }
 
 function formatHour(iso) {
@@ -136,20 +155,17 @@ function formatClock(iso) {
 
 function tempDisplay(v) {
   if (v == null || Number.isNaN(v)) return '--';
-  const n = state.units === 'us' ? v : ((v - 32) * 5) / 9;
-  return Math.round(n);
+  return Math.round(v);
 }
 
 function speedDisplay(v) {
   if (v == null || Number.isNaN(v)) return '--';
-  const n = state.units === 'us' ? v : v * 1.60934;
-  return Math.round(n);
+  return Math.round(v);
 }
 
 function precipDisplay(v) {
   if (v == null || Number.isNaN(v)) return '--';
-  const n = state.units === 'us' ? v : v * 25.4;
-  return n.toFixed(1);
+  return Number(v).toFixed(1);
 }
 
 function visDisplay(vMeters) {
@@ -162,6 +178,28 @@ function visDisplay(vMeters) {
 function tempUnit() { return state.units === 'us' ? 'F' : 'C'; }
 function speedUnit() { return state.units === 'us' ? 'mph' : 'km/h'; }
 function visUnit() { return state.units === 'us' ? 'mi' : 'km'; }
+
+function weatherThemeFromCode(code) {
+  const n = Number(code);
+  if (Number.isNaN(n)) return 'cloud';
+  if (n === 0 || n === 1) return 'clear';
+  if (n === 2 || n === 3) return 'cloud';
+  if (n === 45 || n === 48) return 'fog';
+  if ((n >= 51 && n <= 67) || (n >= 80 && n <= 82)) return 'rain';
+  if (n >= 71 && n <= 77) return 'snow';
+  if (n >= 85 && n <= 86) return 'snow';
+  if (n >= 95) return 'storm';
+  return 'cloud';
+}
+
+function applyWeatherBackground(code, isDay) {
+  const theme = weatherThemeFromCode(code);
+  const body = document.body;
+  const themes = ['clear', 'cloud', 'rain', 'snow', 'storm', 'fog'];
+  themes.forEach(t => body.classList.remove(`weather-${t}`));
+  body.classList.add(`weather-${theme}`);
+  body.classList.toggle('weather-night', Number(isDay) === 0);
+}
 
 function updateUnitsButton() {
   const label = state.units === 'us' ? 'US' : 'Metric';
@@ -177,21 +215,90 @@ function updateNotifyButton() {
   if (!('Notification' in window)) {
     notifyBtn.textContent = 'Notifications unsupported';
     notifyBtn.disabled = true;
+    if (pushTestBtn) pushTestBtn.disabled = true;
     return;
   }
   if (!window.isSecureContext) {
     notifyBtn.textContent = 'Needs HTTPS';
     notifyBtn.disabled = true;
+    if (pushTestBtn) pushTestBtn.disabled = true;
     return;
   }
 
   notifyBtn.disabled = false;
   if (Notification.permission === 'granted') {
-    notifyBtn.textContent = 'Notifications enabled';
+    notifyBtn.textContent = state.pushEnabled ? 'Push enabled' : 'Enable push';
   } else if (Notification.permission === 'denied') {
     notifyBtn.textContent = 'Notifications blocked';
   } else {
     notifyBtn.textContent = 'Enable notifications';
+  }
+
+  if (pushTestBtn) {
+    pushTestBtn.disabled = !(Notification.permission === 'granted' && state.pushEnabled);
+  }
+}
+
+function applyHighContrast() {
+  document.body.classList.toggle('high-contrast', state.highContrast);
+  if (contrastStatus) contrastStatus.textContent = state.highContrast ? 'On' : 'Off';
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function ensurePushSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+
+  const keyResp = await fetch('/api/push/public-key').then(r => r.json()).catch(() => null);
+  const publicKey = keyResp?.publicKey;
+  if (!publicKey) return false;
+
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+  }
+
+  await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subscription: sub,
+      location: state.currentCity ? {
+        latitude: state.currentCity.latitude,
+        longitude: state.currentCity.longitude,
+      } : null,
+    }),
+  });
+
+  state.pushEnabled = true;
+  updateNotifyButton();
+  return true;
+}
+
+async function sendTestPush() {
+  const resp = await fetch('/api/push/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: 'Weather push test',
+      body: state.currentCity ? `Alerts enabled for ${cityLabel(state.currentCity) || 'your location'}` : 'Push notifications are active.',
+      url: window.location.pathname,
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error || 'Push test failed');
   }
 }
 
@@ -212,58 +319,6 @@ function precipType(code, tempF, rain, snowfall) {
   return 'Dry';
 }
 
-function calcDewpoint(tempF, rh) {
-  const tc = (tempF - 32) * 5 / 9;
-  const alpha = Math.log(rh / 100) + (17.62 * tc) / (243.12 + tc);
-  const dewC = (243.12 * alpha) / (17.62 - alpha);
-  return state.units === 'us' ? Math.round(dewC * 9 / 5 + 32) : Math.round(dewC);
-}
-
-function humidityFeel(rh) {
-  if (rh < 25) return 'Very dry';
-  if (rh < 35) return 'Dry';
-  if (rh < 55) return 'Comfortable';
-  if (rh < 65) return 'Moderate';
-  if (rh < 75) return 'Humid';
-  return 'Very humid';
-}
-
-function renderRecommendations(data) {
-  const c = data.current;
-  const d = data.daily;
-  const temp = c.temperature_2m;
-  const code = c.weather_code;
-  const uv = d.uv_index_max[0] ?? 0;
-  const wind = c.wind_speed_10m;
-  const items = [];
-
-  if (temp <= 32) items.push({ icon: '🧥', label: 'Heavy coat' });
-  else if (temp <= 50) items.push({ icon: '🧣', label: 'Jacket' });
-  else if (temp >= 85) items.push({ icon: '👕', label: 'Light clothes' });
-
-  if ([51,53,55,61,63,65,66,67,80,81,82].includes(code)) {
-    items.push({ icon: '☂️', label: 'Umbrella' });
-    items.push({ icon: '🥾', label: 'Waterproof\nshoes' });
-  }
-  if ([71,73,75,77,85,86].includes(code)) {
-    items.push({ icon: '🥾', label: 'Snow boots' });
-    items.push({ icon: '🧤', label: 'Gloves' });
-  }
-  if (code >= 95) items.push({ icon: '⚡', label: 'Stay\nindoors' });
-  if (c.is_day && uv >= 6) {
-    items.push({ icon: '🕶️', label: 'Sunglasses' });
-    items.push({ icon: '🧴', label: 'Sunscreen' });
-  }
-  if (wind >= 20) items.push({ icon: '💨', label: 'Windbreaker' });
-  items.push({ icon: '💧', label: 'Water bottle' });
-
-  const grid = document.getElementById('recommendations');
-  if (!grid) return;
-  grid.innerHTML = items.map(it =>
-    `<div class="rec-item"><span class="rec-icon">${it.icon}</span><span class="rec-label">${it.label}</span></div>`
-  ).join('');
-}
-
 function apparentLabel(tempF, apparentF) {
   if (tempF <= 50 && apparentF <= tempF - 2) return 'Wind chill';
   if (tempF >= 80 && apparentF >= tempF + 2) return 'Heat index';
@@ -276,6 +331,8 @@ function cityKey(city) {
 
 function persistSavedCities() {
   localStorage.setItem(STORAGE_KEYS.savedCities, JSON.stringify(state.savedCities));
+  const defaultEntry = state.savedCities.find(e => e.isDefault);
+  localStorage.setItem(STORAGE_KEYS.defaultCity, defaultEntry ? cityKey(defaultEntry.city) : '');
 }
 
 function persistLastCity(city) {
@@ -289,6 +346,46 @@ function getLastCity() {
 
 function cityLabel(city) {
   return [city?.name, city?.admin1, city?.country].filter(Boolean).join(', ');
+}
+
+function formatRelativeTime(ts) {
+  if (!ts) return 'Never opened';
+  const mins = Math.max(1, Math.round((Date.now() - ts) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  return `${days}d ago`;
+}
+
+function getDefaultSavedEntry() {
+  return state.savedCities.find(e => e.isDefault) || null;
+}
+
+function updateDefaultCityLabel() {
+  if (!defaultCityEl) return;
+  const def = getDefaultSavedEntry();
+  defaultCityEl.textContent = def?.city?.name || 'None';
+}
+
+function setDefaultCityByKey(key) {
+  state.savedCities = state.savedCities.map(e => ({
+    ...e,
+    isDefault: cityKey(e.city) === key,
+  }));
+  persistSavedCities();
+  updateDefaultCityLabel();
+  renderSavedCities();
+}
+
+function moveSavedCity(index, direction) {
+  const next = index + direction;
+  if (next < 0 || next >= state.savedCities.length) return;
+  const arr = [...state.savedCities];
+  [arr[index], arr[next]] = [arr[next], arr[index]];
+  state.savedCities = arr;
+  persistSavedCities();
+  renderSavedCities();
 }
 
 function updateShareUrl(city) {
@@ -310,10 +407,12 @@ function renderSavedCities() {
   savedLocationsEl.innerHTML = '';
   if (!state.savedCities.length) {
     savedLocationsEl.textContent = 'None yet';
+    updateDefaultCityLabel();
     return;
   }
 
-  state.savedCities.forEach(city => {
+  state.savedCities.forEach((entry, index) => {
+    const city = entry.city;
     const wrap = document.createElement('div');
     wrap.className = 'saved-item';
 
@@ -321,7 +420,35 @@ function renderSavedCities() {
     chip.className = 'saved-chip';
     chip.type = 'button';
     chip.textContent = city.name;
-    chip.addEventListener('click', () => loadAll(city, 'saved-location'));
+    chip.title = `${cityLabel(city)} • ${formatRelativeTime(entry.lastViewedAt)}`;
+    chip.addEventListener('click', () => {
+      entry.lastViewedAt = Date.now();
+      persistSavedCities();
+      loadAll(city, 'saved-location');
+    });
+
+    const defaultBtn = document.createElement('button');
+    defaultBtn.className = 'saved-default';
+    defaultBtn.type = 'button';
+    defaultBtn.title = entry.isDefault ? 'Default city' : 'Set as default city';
+    defaultBtn.textContent = entry.isDefault ? '★' : '☆';
+    defaultBtn.addEventListener('click', () => setDefaultCityByKey(cityKey(city)));
+
+    const upBtn = document.createElement('button');
+    upBtn.className = 'saved-move';
+    upBtn.type = 'button';
+    upBtn.title = 'Move up';
+    upBtn.textContent = '↑';
+    upBtn.disabled = index === 0;
+    upBtn.addEventListener('click', () => moveSavedCity(index, -1));
+
+    const downBtn = document.createElement('button');
+    downBtn.className = 'saved-move';
+    downBtn.type = 'button';
+    downBtn.title = 'Move down';
+    downBtn.textContent = '↓';
+    downBtn.disabled = index === state.savedCities.length - 1;
+    downBtn.addEventListener('click', () => moveSavedCity(index, 1));
 
     const remove = document.createElement('button');
     remove.className = 'saved-remove';
@@ -329,50 +456,53 @@ function renderSavedCities() {
     remove.textContent = 'x';
     remove.addEventListener('click', (e) => {
       e.stopPropagation();
-      state.savedCities = state.savedCities.filter(c => cityKey(c) !== cityKey(city));
+      state.savedCities = state.savedCities.filter(c => cityKey(c.city) !== cityKey(city));
       persistSavedCities();
       renderSavedCities();
     });
 
+    const meta = document.createElement('span');
+    meta.className = 'saved-meta';
+    meta.textContent = formatRelativeTime(entry.lastViewedAt);
+
+    wrap.appendChild(defaultBtn);
     wrap.appendChild(chip);
+    wrap.appendChild(upBtn);
+    wrap.appendChild(downBtn);
     wrap.appendChild(remove);
+    wrap.appendChild(meta);
     savedLocationsEl.appendChild(wrap);
   });
+
+  updateDefaultCityLabel();
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
-
-function activateTab(tabName) {
-  document.querySelectorAll('.tab, .bottom-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach(p => hide(p));
-  document.querySelectorAll(`[data-tab="${tabName}"]`).forEach(t => t.classList.add('active'));
-  show(document.getElementById('tab-' + tabName));
-
-  if (tabName === 'conditions') {
-    setTimeout(() => { radarEmbed && radarEmbed.refresh && radarEmbed.refresh(); }, 60);
-  }
-  if (tabName === 'unified-map') {
-    setTimeout(() => { unifiedMap && unifiedMap.refresh && unifiedMap.refresh(); }, 50);
-  }
-}
-document.querySelectorAll('.tab, .bottom-tab').forEach(btn => {
-  btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => hide(p));
+    btn.classList.add('active');
+    show(document.getElementById('tab-' + btn.dataset.tab));
+    if (btn.dataset.tab === 'radar-full') {
+      setTimeout(() => { radarFull.map && radarFull.map.invalidateSize(); }, 50);
+    }
+    if (btn.dataset.tab === 'maps') {
+      setTimeout(refreshMapsOverview, 80);
+    } else {
+      setMapsFullscreen(false);
+    }
+  });
 });
 
+document.getElementById('open-radar-tab').addEventListener('click', () => {
+  document.querySelector('.tab[data-tab="radar-full"]').click();
+});
 
-const openMapTabBtn = document.getElementById('open-map-tab');
-if (openMapTabBtn) {
-  openMapTabBtn.addEventListener('click', () => {
-    activateTab('unified-map');
-  });
-}
 // ── APIs ─────────────────────────────────────────────────────────────────────
 async function geocode(q) {
   const r = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
-  if (!r.ok) {
-    const detail = await r.text().catch(() => '');
-    throw new Error(`Geocoding failed (${r.status})${detail ? `: ${detail.slice(0, 180)}` : ''}`);
-  }
+  if (!r.ok) throw new Error('Geocoding failed');
   return r.json();
 }
 
@@ -382,40 +512,15 @@ async function reverseGeocode(lat, lon) {
   return r.json();
 }
 
-async function fetchJsonWithTimeout(url, timeoutMs) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
-  clearTimeout(timeoutId);
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new Error(`Request failed (${response.status})${detail ? `: ${detail.slice(0, 180)}` : ''}`);
-  }
-  return response.json();
-}
-
 async function fetchWeather(lat, lon, tz) {
-  const proxyUrl = `/api/weather?lat=${lat}&lon=${lon}&tz=${encodeURIComponent(tz||'auto')}&units=${encodeURIComponent(state.units)}`;
-
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      return await fetchJsonWithTimeout(proxyUrl, 22000);
-    } catch (err) {
-      const reason = err?.name === 'AbortError' ? 'timeout' : (err?.message || err);
-      if (attempt >= 3) {
-        throw new Error(`Weather proxy failed after ${attempt} attempts: ${reason}`);
-      }
-      await new Promise(resolve => setTimeout(resolve, 500 * attempt));
-    }
-  }
+  const r = await fetch(`/api/weather?lat=${lat}&lon=${lon}&tz=${encodeURIComponent(tz||'auto')}&units=${encodeURIComponent(state.units)}`);
+  if (!r.ok) throw new Error('Weather fetch failed');
+  return r.json();
 }
 
 async function fetchAirQuality(lat, lon, tz) {
-  const url = `/api/air-quality?lat=${lat}&lon=${lon}&tz=${encodeURIComponent(tz||'auto')}`;
-  console.log('Fetching air quality from:', url);
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`Air quality fetch failed with status ${r.status}`);
+  const r = await fetch(`/api/air-quality?lat=${lat}&lon=${lon}&tz=${encodeURIComponent(tz||'auto')}`);
+  if (!r.ok) throw new Error('Air quality fetch failed');
   return r.json();
 }
 
@@ -425,15 +530,33 @@ async function fetchAlerts(lat, lon) {
   return r.json();
 }
 
+async function fetchLightning(lat, lon) {
+  const ageMin = Number(state.lightningAgeMin || 15);
+  const r = await fetch(`/api/lightning?lat=${lat}&lon=${lon}&age=${ageMin}`);
+  if (!r.ok) throw new Error('Lightning fetch failed');
+  return r.json();
+}
+
 function detectedCityFallback(lat, lon) {
   return {
-    name: `Detected location (${lat.toFixed(2)}, ${lon.toFixed(2)})`,
+    name: `Auto-detected (${lat.toFixed(2)}, ${lon.toFixed(2)})`,
     latitude: lat,
     longitude: lon,
     country: '',
     admin1: '',
     timezone: 'auto',
   };
+}
+
+function resolveDetectedName(place, fallback) {
+  const raw = (place?.name || '').trim();
+  const genericName = !raw || /current\s*location|detected\s*location/i.test(raw);
+  if (!genericName) return raw;
+
+  const displayRoot = (place?.display_name || '').split(',')[0]?.trim();
+  if (displayRoot) return displayRoot;
+
+  return fallback.name;
 }
 
 async function buildDetectedCity(lat, lon) {
@@ -444,6 +567,7 @@ async function buildDetectedCity(lat, lon) {
     return {
       ...fallback,
       ...place,
+      name: resolveDetectedName(place, fallback),
       latitude: lat,
       longitude: lon,
       timezone: place.timezone || 'auto',
@@ -455,9 +579,6 @@ async function buildDetectedCity(lat, lon) {
 
 // ── Radar engine ──────────────────────────────────────────────────────────────
 function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
-  const FRAME_INTERVAL_MS = 650;
-  const FRAME_FADE_MS = 240;
-
   const map = L.map(mapEl, {
     center: [39.5, -98.35],
     zoom: 4,
@@ -477,9 +598,6 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
   let playing = false;
   let animTimer = null;
   let locationMarker = null;
-  let visibleLayer = null;
-  let framesReady = false;
-  let loadingFrames = false;
 
   function activeFrames() {
     return mode === 'radar' ? radarFrames : satelliteFrames;
@@ -505,33 +623,12 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
     if (!frame) return;
 
     if (!layers[mode][frame.time]) {
-      layers[mode][frame.time] = L.tileLayer(frameTileUrl(frame), { opacity: 0, maxZoom: 17 });
+      layers[mode][frame.time] = L.tileLayer(frameTileUrl(frame), { opacity: 0.75, maxZoom: 15 });
     }
 
-    Object.values(layers.radar).forEach(l => {
-      if (l !== visibleLayer && map.hasLayer(l)) map.removeLayer(l);
-    });
-    Object.values(layers.satellite).forEach(l => {
-      if (l !== visibleLayer && map.hasLayer(l)) map.removeLayer(l);
-    });
-
-    const nextLayer = layers[mode][frame.time];
-    if (!map.hasLayer(nextLayer)) {
-      nextLayer.setOpacity(0);
-      nextLayer.addTo(map);
-    }
-
-    nextLayer.setOpacity(0.78);
-
-    if (visibleLayer && visibleLayer !== nextLayer && map.hasLayer(visibleLayer)) {
-      visibleLayer.setOpacity(0.2);
-      const prevLayer = visibleLayer;
-      setTimeout(() => {
-        if (prevLayer !== visibleLayer && map.hasLayer(prevLayer)) map.removeLayer(prevLayer);
-      }, FRAME_FADE_MS);
-    }
-
-    visibleLayer = nextLayer;
+    Object.values(layers.radar).forEach(l => { if (map.hasLayer(l)) map.removeLayer(l); });
+    Object.values(layers.satellite).forEach(l => { if (map.hasLayer(l)) map.removeLayer(l); });
+    layers[mode][frame.time].addTo(map);
 
     tsEl.textContent = tsLabel(frame.time);
     document.querySelectorAll(`#${timelineEl.id} .tl-tick`).forEach((el, i) => {
@@ -564,7 +661,7 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
   function startPlay() {
     playing = true;
     playBtn.textContent = '⏸';
-    animTimer = setInterval(step, FRAME_INTERVAL_MS);
+    animTimer = setInterval(step, 500);
   }
 
   function stopPlay() {
@@ -580,7 +677,6 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
       if (!(radarFrames.length && satelliteFrames.length)) return;
       mode = mode === 'radar' ? 'satellite' : 'radar';
       layerBtn.textContent = mode === 'radar' ? 'R' : 'S';
-      visibleLayer = null;
       buildTimeline();
       const idx = Math.min(currentIdx, activeFrames().length - 1);
       showFrame(Math.max(idx, 0));
@@ -588,65 +684,29 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
   }
 
   async function loadFrames() {
-    if (loadingFrames || framesReady) return;
-    loadingFrames = true;
-    let retries = 0;
-    const maxRetries = 2;
-
     try {
-      while (retries < maxRetries) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 20000);
-        
-        const r = await fetch('/api/radar/times', { signal: controller.signal });
-        clearTimeout(timeoutId);
-        
-        if (!r.ok) {
-          throw new Error(`Radar fetch returned ${r.status}`);
-        }
-        const data = await r.json();
+      const r = await fetch('/api/radar/times');
+      const data = await r.json();
 
-        radarFrames = [];
-        satelliteFrames = [];
-        (data.radar?.past || []).forEach(f => radarFrames.push({ time: f.time, path: f.path, isForecast: false }));
-        (data.radar?.nowcast || []).forEach(f => radarFrames.push({ time: f.time, path: f.path, isForecast: true }));
-        (data.satellite?.infrared || []).forEach(f => satelliteFrames.push({ time: f.time, path: f.path, isForecast: false }));
+      radarFrames = [];
+      satelliteFrames = [];
+      (data.radar?.past || []).forEach(f => radarFrames.push({ time: f.time, path: f.path, isForecast: false }));
+      (data.radar?.nowcast || []).forEach(f => radarFrames.push({ time: f.time, path: f.path, isForecast: true }));
+      (data.satellite?.infrared || []).forEach(f => satelliteFrames.push({ time: f.time, path: f.path, isForecast: false }));
 
-        if (!radarFrames.length && satelliteFrames.length) mode = 'satellite';
-        if (!radarFrames.length && !satelliteFrames.length) {
-          console.warn('No radar or satellite frames available');
-          return;
-        }
+      if (!radarFrames.length && satelliteFrames.length) mode = 'satellite';
+      if (!radarFrames.length && !satelliteFrames.length) return;
 
-        if (layerBtn) {
-          layerBtn.disabled = !(radarFrames.length && satelliteFrames.length);
-          layerBtn.textContent = mode === 'radar' ? 'R' : 'S';
-        }
-
-        buildTimeline();
-        const frames = activeFrames();
-        showFrame(Math.max(frames.length - 1, 0));
-        framesReady = true;
-        return;
-      } catch (e) {
-        retries++;
-        if (e.name === 'AbortError') {
-          console.warn(`Radar load attempt ${retries} timed out - API slow or unavailable`);
-        } else {
-          console.error(`Radar load attempt ${retries} failed:`, e.message);
-        }
-        
-        if (retries >= maxRetries) {
-          console.error('Radar load failed after', maxRetries, 'attempts');
-          return;
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      if (layerBtn) {
+        layerBtn.disabled = !(radarFrames.length && satelliteFrames.length);
+        layerBtn.textContent = mode === 'radar' ? 'R' : 'S';
       }
-    }
-    } finally {
-      loadingFrames = false;
+
+      buildTimeline();
+      const frames = activeFrames();
+      showFrame(frames.length - 1);
+    } catch (e) {
+      console.error('Radar load failed', e);
     }
   }
 
@@ -662,32 +722,8 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
     }).addTo(map);
   }
 
-  function isMapVisible() {
-    return mapEl.offsetWidth > 0 && mapEl.offsetHeight > 0;
-  }
-
-  function refresh() {
-    if (!isMapVisible()) return;
-    map.invalidateSize();
-    loadFrames();
-  }
-
-  // Wait for visibility before first load to avoid zero-size Leaflet rendering.
-  setTimeout(() => {
-    let tries = 0;
-    const maxTries = 40; // ~10 seconds at 250ms interval
-    const timer = setInterval(() => {
-      tries++;
-      if (isMapVisible()) {
-        refresh();
-        clearInterval(timer);
-      } else if (tries >= maxTries) {
-        clearInterval(timer);
-      }
-    }, 250);
-  }, 100);
-
-  return { map, panTo, startPlay, stopPlay, refresh };
+  loadFrames();
+  return { map, panTo, startPlay, stopPlay };
 }
 
 const radarEmbed = createRadar(
@@ -718,6 +754,35 @@ function createOverviewMap(mapEl) {
     maxZoom: 18,
   }).addTo(map);
 
+  const radarLayer = L.tileLayer('https://tilecache.rainviewer.com/v2/radar/nowcast_0/256/{z}/{x}/{y}/2/1_1.png', {
+    maxZoom: 15,
+    opacity: Math.max(0.25, Math.min(0.9, state.radarOpacity / 100)),
+  }).addTo(map);
+
+  let lastRadarFramePath = null;
+
+  async function refreshRadarOverlay() {
+    try {
+      const r = await fetch('/api/radar/times');
+      if (!r.ok) return;
+      const data = await r.json();
+      const frames = [
+        ...(data?.radar?.past || []),
+        ...(data?.radar?.nowcast || []),
+      ];
+      const latest = frames[frames.length - 1];
+      const path = latest?.path;
+      if (!path || path === lastRadarFramePath) return;
+      lastRadarFramePath = path;
+      radarLayer.setUrl(`https://tilecache.rainviewer.com${path}/256/{z}/{x}/{y}/2/1_1.png`);
+    } catch (e) {
+      console.warn('Maps radar overlay refresh failed', e);
+    }
+  }
+
+  refreshRadarOverlay();
+  setInterval(refreshRadarOverlay, 5 * 60 * 1000);
+
   let marker = null;
 
   function panTo(lat, lon, zoom) {
@@ -732,13 +797,20 @@ function createOverviewMap(mapEl) {
     }).addTo(map);
   }
 
-  return { map, panTo };
+  function setRadarOpacity(opacityPct) {
+    const normalized = Math.max(0.25, Math.min(0.9, Number(opacityPct) / 100));
+    radarLayer.setOpacity(normalized);
+  }
+
+  return { map, panTo, setRadarOpacity, refreshRadarOverlay };
 }
 
-function clearLightningMarkers() {
+function clearLightningLayer() {
   if (!mapsOverview.map) return;
-  state.lightningMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
-  state.lightningMarkers = [];
+  if (state.lightningLayer) {
+    mapsOverview.map.removeLayer(state.lightningLayer);
+    state.lightningLayer = null;
+  }
 }
 
 function clearWindArrows() {
@@ -751,61 +823,87 @@ function refreshMapsOverview() {
   if (!mapsOverview.map) return;
 
   mapsOverview.map.invalidateSize();
+  mapsOverview.refreshRadarOverlay();
 
   if (!state.currentCity) return;
 
   mapsOverview.panTo(state.currentCity.latitude, state.currentCity.longitude, 6);
 
-  clearLightningMarkers();
+  clearLightningLayer();
   clearWindArrows();
 
   if (state.showLightning) renderLightningStrikes(state.currentCity);
   if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
 }
 
-function renderLightningStrikes(city) {
+function circleCenter(coords) {
+  let sumLat = 0;
+  let sumLon = 0;
+  let count = 0;
+  coords.forEach(([lon, lat]) => {
+    sumLat += lat;
+    sumLon += lon;
+    count += 1;
+  });
+  if (!count) return null;
+  return [sumLat / count, sumLon / count];
+}
+
+async function renderLightningStrikes(city) {
   if (!mapsOverview.map || !state.showLightning) return;
-  clearLightningMarkers();
+  clearLightningLayer();
 
-  // Simulate lightning strikes in the vicinity of the city
-  // In production, this would fetch from a real lightning API like Blitzortung
-  const strokeCount = 5 + Math.random() * 3; // Random 5-8 strikes
-  const maxRadius = 0.35;
+  try {
+    const data = await fetchLightning(city.latitude, city.longitude);
+    const features = data?.features || [];
+    if (!features.length) return;
 
-  for (let i = 0; i < strokeCount; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const radius = Math.random() * maxRadius;
-    const latOffset = Math.cos(angle) * radius;
-    const lonOffset = Math.sin(angle) * radius;
-    const lat = parseFloat(city.latitude) + latOffset;
-    const lon = parseFloat(city.longitude) + lonOffset;
+    const layers = [];
+    features.forEach((feature) => {
+      const geom = feature?.geometry;
+      const event = feature?.properties?.event || 'Thunderstorm activity';
+      const severity = feature?.properties?.severity || 'Unknown severity';
+      if (!geom) return;
 
-    const marker = L.circleMarker([lat, lon], {
-      radius: 3 + Math.random() * 3,
-      fillColor: '#ffeb3b',
-      fillOpacity: 0.7 + Math.random() * 0.3,
-      color: '#ff6f00',
-      weight: 1.5,
-      className: 'lightning-marker',
-    }).bindPopup('⚡ Lightning strike (simulated)');
-
-    marker.addTo(mapsOverview.map);
-    state.lightningMarkers.push(marker);
-
-    // Animate the marker to fade out
-    setTimeout(() => {
-      if (marker && mapsOverview.map.hasLayer(marker)) {
-        const fade = setInterval(() => {
-          const opacity = parseFloat(marker.options.fillOpacity) - 0.05;
-          if (opacity <= 0) {
-            clearInterval(fade);
-            mapsOverview.map.removeLayer(marker);
-          } else {
-            marker.setStyle({ fillOpacity: opacity });
-          }
-        }, 200);
+      const polygonSets = [];
+      if (geom.type === 'Polygon' && Array.isArray(geom.coordinates?.[0])) {
+        polygonSets.push(geom.coordinates[0]);
       }
-    }, 3000);
+      if (geom.type === 'MultiPolygon' && Array.isArray(geom.coordinates)) {
+        geom.coordinates.forEach(poly => {
+          if (Array.isArray(poly?.[0])) polygonSets.push(poly[0]);
+        });
+      }
+
+      polygonSets.forEach((polyCoords, idx) => {
+        const ring = polyCoords.map(([lon, lat]) => [lat, lon]);
+        const poly = L.polygon(ring, {
+          color: '#ff8b1a',
+          weight: 1.5,
+          opacity: 0.8,
+          fillColor: '#ffd34d',
+          fillOpacity: 0.18,
+        }).bindPopup(`${event} • ${severity}`);
+        layers.push(poly);
+
+        const center = circleCenter(polyCoords);
+        if (center) {
+          const strike = L.circleMarker(center, {
+            radius: 5,
+            fillColor: '#ffe066',
+            fillOpacity: 0.95,
+            color: '#ff6f00',
+            weight: 2,
+          }).bindPopup(`${event} area ${idx + 1}`);
+          layers.push(strike);
+        }
+      });
+    });
+
+    if (!layers.length) return;
+    state.lightningLayer = L.layerGroup(layers).addTo(mapsOverview.map);
+  } catch (e) {
+    console.warn('Lightning overlay unavailable', e);
   }
 }
 
@@ -815,79 +913,158 @@ function renderWindArrows(city) {
   
   // Get current wind data
   const current = state.currentWeather.current;
-  if (!current || current.wind_speed_10m == null) return;
+  if (!current || !current.wind_speed_10m) return;
   
   const windSpeed = current.wind_speed_10m;
-  const windGust = current.wind_gusts_10m || 0;
   const windDir = current.wind_direction_10m || 0;
   
-  // Update wind data display
-  document.getElementById('wind-speed').textContent = `${speedDisplay(windSpeed)} ${speedUnit()}`;
-  document.getElementById('wind-gust').textContent = windGust > 0 ? `${speedDisplay(windGust)} ${speedUnit()}` : '--';
-  document.getElementById('wind-direction').textContent = compassDirFull(windDir);
-  
-  // Draw multiple wind barbs around the city center to show wind strength
+  // Draw a wind barb pointing in the direction of wind movement
   const lat = parseFloat(city.latitude);
   const lon = parseFloat(city.longitude);
-  const arrowCount = Math.min(Math.ceil(windSpeed / 5), 5); // More arrows = stronger wind
-  const baseRadius = 0.15;
+  const radius = 0.3;
   
-  for (let i = 0; i < arrowCount; i++) {
-    const offset = (i - arrowCount / 2) * 0.08;
-    const offsetLat = lat + offset;
-    const offsetLon = lon;
-    
-    // Calculate arrow end point based on wind direction
-    const radians = (windDir * Math.PI) / 180;
-    const arrowLength = 0.15 + i * 0.05;
-    const endLat = offsetLat + arrowLength * Math.cos(radians);
-    const endLon = offsetLon + arrowLength * Math.sin(radians);
-    
-    // Draw arrow line with gradient color based on wind speed
-    const color = windSpeed > 20 ? '#ff3333' : windSpeed > 10 ? '#ffaa00' : '#4a90e2';
-    const weight = 2.5 + (i % 2);
-    
-    const arrow = L.polyline(
-      [[offsetLat, offsetLon], [endLat, endLon]],
-      {
-        color: color,
-        weight: weight,
-        opacity: 1.0,
-        smooth: true,
-      }
-    ).bindPopup(`💨 Wind: ${speedDisplay(windSpeed)} ${speedUnit()}<br>Direction: ${compassDirFull(windDir)}`);
-    
-    arrow.addTo(mapsOverview.map);
-    state.windArrows.push(arrow);
-    
-    // Draw arrow head
-    const headSize = 0.05;
-    const arrowHeadLat1 = endLat - headSize * Math.cos(radians + Math.PI * 0.15);
-    const arrowHeadLon1 = endLon - headSize * Math.sin(radians + Math.PI * 0.15);
-    const arrowHeadLat2 = endLat - headSize * Math.cos(radians - Math.PI * 0.15);
-    const arrowHeadLon2 = endLon - headSize * Math.sin(radians - Math.PI * 0.15);
-    
-    const arrowHead = L.polyline(
-      [[arrowHeadLat1, arrowHeadLon1], [endLat, endLon], [arrowHeadLat2, arrowHeadLon2]],
-      {
-        color: color,
-        weight: weight,
-        opacity: 1.0,
-      }
-    );
-    
-    arrowHead.addTo(mapsOverview.map);
-    state.windArrows.push(arrowHead);
-  }
+  // Calculate arrow end point based on wind direction
+  const radians = (windDir * Math.PI) / 180;
+  const endLat = lat + radius * Math.cos(radians);
+  const endLon = lon + radius * Math.sin(radians);
+  
+  // Draw arrow line
+  const arrow = L.polyline(
+    [[lat, lon], [endLat, endLon]],
+    {
+      color: '#4a90e2',
+      weight: 2,
+      opacity: 0.7,
+    }
+  ).bindPopup(`Wind: ${speedDisplay(windSpeed)} ${speedUnit()}`);
+  
+  arrow.addTo(mapsOverview.map);
+  state.windArrows.push(arrow);
+  
+  // Draw arrow head as a small circle at the end
+  const arrowHead = L.circleMarker([endLat, endLon], {
+    radius: 3,
+    fillColor: '#4a90e2',
+    fillOpacity: 0.7,
+    color: '#fff',
+    weight: 1,
+  });
+  
+  arrowHead.addTo(mapsOverview.map);
+  state.windArrows.push(arrowHead);
 }
 
 const mapsOverview = createOverviewMap(document.getElementById('map-overview'));
 
+function setMapsFullscreen(active) {
+  const wrap = document.querySelector('#tab-maps .maps-wrap');
+  if (!wrap) return;
+  wrap.classList.toggle('is-fullscreen', active);
+  document.body.classList.toggle('map-fullscreen-lock', active);
+  if (mapsFullscreenBtn) {
+    mapsFullscreenBtn.textContent = active ? 'Exit fullscreen' : 'Fullscreen map';
+  }
+  setTimeout(() => {
+    if (mapsOverview?.map) mapsOverview.map.invalidateSize();
+  }, 100);
+}
+
+if (mapsFullscreenBtn) {
+  mapsFullscreenBtn.addEventListener('click', async () => {
+    const wrap = document.querySelector('#tab-maps .maps-wrap');
+    if (!wrap) return;
+
+    if (document.fullscreenElement === wrap) {
+      await document.exitFullscreen().catch(() => {});
+      setMapsFullscreen(false);
+      return;
+    }
+
+    if (wrap.requestFullscreen) {
+      try {
+        await wrap.requestFullscreen();
+        setMapsFullscreen(true);
+        return;
+      } catch {
+        // Some mobile browsers reject Fullscreen API; fallback below.
+      }
+    }
+
+    setMapsFullscreen(!wrap.classList.contains('is-fullscreen'));
+  });
+}
+
+document.addEventListener('fullscreenchange', () => {
+  const wrap = document.querySelector('#tab-maps .maps-wrap');
+  if (!wrap) return;
+  setMapsFullscreen(document.fullscreenElement === wrap);
+});
+
 // ── Rendering ────────────────────────────────────────────────────────────────
+function renderDailyForecast(daily) {
+  const list = document.getElementById('daily-list');
+  const totalDays = daily?.time?.length || 0;
+  const defaultDays = Math.min(7, totalDays);
+  const visibleDays = state.dailyExpanded ? totalDays : defaultDays;
+
+  list.innerHTML = '';
+  for (let i = 0; i < visibleDays; i++) {
+    const dw = wmo(daily.weather_code[i]);
+    const row = document.createElement('div');
+    row.className = 'day-row' + (i === 0 ? ' today' : '');
+    row.innerHTML = `
+      <div class="day-name">${formatDayShort(daily.time[i])}</div>
+      <div class="day-icon">${dw.icon}</div>
+      <div class="day-desc">${dw.desc}</div>
+      <div class="day-temps">${tempDisplay(daily.temperature_2m_max[i])}°<span class="day-lo"> / ${tempDisplay(daily.temperature_2m_min[i])}°</span></div>
+      <div class="day-meta">${daily.precipitation_probability_max[i] > 0 ? daily.precipitation_probability_max[i] + '% rain<br>' : ''}${speedDisplay(daily.wind_speed_10m_max[i])} ${speedUnit()}</div>
+    `;
+    list.appendChild(row);
+  }
+
+  if (dailyForecastLabel) {
+    dailyForecastLabel.textContent = `${visibleDays}-Day Forecast`;
+  }
+
+  if (dailyForecastToggle) {
+    if (totalDays > defaultDays) {
+      show(dailyForecastToggle);
+      dailyForecastToggle.textContent = state.dailyExpanded
+        ? 'Show 7-day view'
+        : `Show full ${totalDays}-day forecast`;
+    } else {
+      hide(dailyForecastToggle);
+    }
+  }
+}
+
+function summarizeHourly(hourly, startIdx) {
+  if (!hourly?.time?.length || !hourly?.precipitation_probability?.length) {
+    return 'Hourly details unavailable.';
+  }
+
+  let rainIdx = -1;
+  for (let i = startIdx; i < Math.min(startIdx + 24, hourly.time.length); i++) {
+    const pp = Number(hourly.precipitation_probability[i] || 0);
+    const rain = Number(hourly.rain?.[i] || 0);
+    if (pp >= 45 || rain > 0.1) {
+      rainIdx = i;
+      break;
+    }
+  }
+
+  if (rainIdx === -1) {
+    return 'No notable rain expected in the next 24 hours.';
+  }
+  return `Rain likely around ${formatHour(hourly.time[rainIdx])}.`;
+}
+
 function renderWeather(data, city) {
   const c = data.current;
   const h = data.hourly;
   const d = data.daily;
+
+  applyWeatherBackground(c.weather_code, c.is_day);
 
   document.getElementById('loc-name').textContent = city.name;
   document.getElementById('loc-sub').textContent = [city.admin1, city.country].filter(Boolean).join(', ');
@@ -907,36 +1084,17 @@ function renderWeather(data, city) {
   document.getElementById('cur-lo').textContent = tempDisplay(d.temperature_2m_min[0]);
   document.getElementById('cur-precip').textContent = c.precipitation > 0 ? `${precipDisplay(c.precipitation)} ${state.units === 'us' ? 'in' : 'mm'} precip` : 'No precipitation';
   document.getElementById('cur-hum').textContent = c.relative_humidity_2m;
-  document.getElementById('hum-feel').textContent = humidityFeel(c.relative_humidity_2m);
-  document.getElementById('cur-wind').textContent = speedDisplay(c.wind_speed_10m);
-  document.getElementById('cur-wind-dir').textContent = compassDirFull(c.wind_direction_10m);
-  document.getElementById('cur-gust').textContent = c.wind_gusts_10m != null ? speedDisplay(c.wind_gusts_10m) : '—';
-  document.getElementById('cur-dew').textContent = calcDewpoint(c.temperature_2m, c.relative_humidity_2m);
+  document.getElementById('cur-wind').textContent = `${speedDisplay(c.wind_speed_10m)} ${compassDir(c.wind_direction_10m)}`;
   document.getElementById('cur-pres').textContent = Math.round(c.surface_pressure);
   document.getElementById('cur-vis').textContent = visDisplay(c.visibility);
   document.getElementById('cur-uv').textContent = Math.round(d.uv_index_max[0] ?? 0);
   document.getElementById('cur-cloud').textContent = c.cloud_cover;
-  document.querySelectorAll('.wind-unit, .gust-unit').forEach(el => el.textContent = speedUnit());
-  document.querySelectorAll('.vis-unit').forEach(el => el.textContent = visUnit());
+  document.querySelector('.stat:nth-child(2) .unit').textContent = speedUnit();
+  document.querySelector('.stat:nth-child(4) .unit').textContent = visUnit();
 
   document.getElementById('sunrise-val').textContent = formatClock(d.sunrise[0]);
   document.getElementById('sunset-val').textContent = formatClock(d.sunset[0]);
   document.getElementById('moon-phase-val').textContent = moonPhase(d.time[0]);
-
-  // Sun timeline progress
-  const sunriseMs = new Date(d.sunrise[0]).getTime();
-  const sunsetMs  = new Date(d.sunset[0]).getTime();
-  const nowMs     = Date.now();
-  const totalMs   = sunsetMs - sunriseMs;
-  const sunPct    = Math.max(0, Math.min(100, ((nowMs - sunriseMs) / totalMs) * 100));
-  const progressEl = document.getElementById('sun-progress');
-  const dotEl = document.getElementById('sun-dot');
-  if (progressEl) progressEl.style.width = sunPct + '%';
-  if (dotEl) dotEl.style.left = sunPct + '%';
-  const daylightEl = document.getElementById('daylight-info');
-  if (daylightEl) daylightEl.textContent = `${(totalMs / 3600000).toFixed(1)}h daylight`;
-
-  renderRecommendations(data);
 
   const nowTs = Date.now();
   let startIdx = h.time.findIndex(t => new Date(t).getTime() >= nowTs);
@@ -954,12 +1112,16 @@ function renderWeather(data, city) {
       <div class="hour-time">${i === startIdx ? 'Now' : formatHour(h.time[i])}</div>
       <div class="hour-icon">${hw.icon}</div>
       <div class="hour-temp">${tempDisplay(h.temperature_2m[i])}°</div>
+      <div class="hour-feels">Feels ${tempDisplay(h.apparent_temperature?.[i])}°</div>
       <div class="hour-precip">${pp > 0 ? `${pp}% ${ptype}` : ptype}</div>
     `;
     track.appendChild(cell);
   }
 
-  state.showExtendedForecast = false;
+  if (hourlySummaryEl) {
+    hourlySummaryEl.textContent = summarizeHourly(h, startIdx);
+  }
+
   renderDailyForecast(d);
 
   document.getElementById('updated-at').textContent =
@@ -975,43 +1137,6 @@ function renderWeather(data, city) {
   refreshMapsOverview();
 
   show(weatherDiv);
-  setTimeout(() => { radarEmbed.refresh && radarEmbed.refresh(); }, 80);
-}
-
-function renderDailyForecast(daily) {
-  const list = document.getElementById('daily-list');
-  if (!list || !daily?.time?.length) return;
-
-  const totalDays = daily.time.length;
-  const maxDays = state.showExtendedForecast ? Math.min(16, totalDays) : Math.min(7, totalDays);
-
-  list.innerHTML = '';
-  for (let i = 0; i < maxDays; i++) {
-    const dw = wmo(daily.weather_code[i]);
-    const row = document.createElement('div');
-    row.className = 'day-row' + (i === 0 ? ' today' : '');
-    row.innerHTML = `
-      <div class="day-name">${formatDayShort(daily.time[i])}</div>
-      <div class="day-icon">${dw.icon}</div>
-      <div class="day-desc">${dw.desc}</div>
-      <div class="day-temps">${tempDisplay(daily.temperature_2m_max[i])}°<span class="day-lo"> / ${tempDisplay(daily.temperature_2m_min[i])}°</span></div>
-      <div class="day-meta">${daily.precipitation_probability_max[i] > 0 ? daily.precipitation_probability_max[i] + '% rain<br>' : ''}${speedDisplay(daily.wind_speed_10m_max[i])} ${speedUnit()}</div>
-    `;
-    list.appendChild(row);
-  }
-
-  if (dailyForecastLabel) {
-    dailyForecastLabel.textContent = state.showExtendedForecast ? '16-Day Forecast' : '7-Day Forecast';
-  }
-
-  if (dailyToggleBtn) {
-    if (totalDays > 7) {
-      show(dailyToggleBtn);
-      dailyToggleBtn.textContent = state.showExtendedForecast ? 'Show 7-day' : 'Show 16-day';
-    } else {
-      hide(dailyToggleBtn);
-    }
-  }
 }
 
 function renderAirQuality(data) {
@@ -1064,70 +1189,36 @@ function renderAlerts(data) {
 async function loadAll(city, source) {
   state.currentCity = city;
   if (source) state.currentSource = source;
+
+  const saved = state.savedCities.find(e => cityKey(e.city) === cityKey(city));
+  if (saved) {
+    saved.lastViewedAt = Date.now();
+    persistSavedCities();
+    renderSavedCities();
+  }
+
   clearErr();
   hide(suggestEl);
   hide(weatherDiv);
   show(loadingEl);
 
   try {
-    let weather;
-    try {
-      weather = await fetchWeather(city.latitude, city.longitude, city.timezone);
-    } catch (weatherErr) {
-      console.error('Primary weather fetch failed:', weatherErr?.message || weatherErr);
-      if (state.currentWeather) {
-        weather = state.currentWeather;
-        showErr('Live weather update failed. Showing last available data.');
-      } else {
-        throw weatherErr;
-      }
-    }
-
-    const [airResult, alertsResult] = await Promise.allSettled([
+    const [weather, air, alerts] = await Promise.all([
+      fetchWeather(city.latitude, city.longitude, city.timezone),
       fetchAirQuality(city.latitude, city.longitude, city.timezone),
-      fetchAlerts(city.latitude, city.longitude),
+      fetchAlerts(city.latitude, city.longitude).catch(() => ({ features: [] })),
     ]);
-
-    const air = airResult.status === 'fulfilled' ? airResult.value : { current: {} };
-    if (airResult.status !== 'fulfilled') {
-      console.warn('Air quality fetch failed:', airResult.reason?.message || airResult.reason);
-    }
-
-    const alerts = alertsResult.status === 'fulfilled' ? alertsResult.value : { features: [] };
-    if (alertsResult.status !== 'fulfilled') {
-      console.warn('Alerts fetch failed:', alertsResult.reason?.message || alertsResult.reason);
-    }
 
     state.currentWeather = weather;
     state.currentAir = air;
     state.lastRefreshAt = Date.now();
-
-    // Keep weather load resilient: map/radar/render hiccups should not fail the whole page.
-    try {
-      renderWeather(weather, city);
-    } catch (renderErr) {
-      console.error('Weather render error:', renderErr);
-      show(weatherDiv);
-    }
-
-    try {
-      renderAirQuality(air);
-    } catch (airRenderErr) {
-      console.warn('Air quality render error:', airRenderErr);
-    }
-
-    try {
-      renderAlerts(alerts);
-    } catch (alertsRenderErr) {
-      console.warn('Alerts render error:', alertsRenderErr);
-    }
+    renderWeather(weather, city);
+    renderAirQuality(air);
+    renderAlerts(alerts);
     
-    try {
-      if (state.showLightning) renderLightningStrikes(city);
-      if (state.showWind) renderWindArrows(city);
-    } catch (mapOverlayErr) {
-      console.warn('Map overlay render error:', mapOverlayErr);
-    }
+    // Render map overlays
+    if (state.showLightning) renderLightningStrikes(city);
+    if (state.showWind) renderWindArrows(city);
   } catch (e) {
     showErr('Failed to load weather data. Please try again.');
     console.error(e);
@@ -1189,8 +1280,7 @@ searchInput.addEventListener('input', () => {
         suggestEl.appendChild(li);
       });
       show(suggestEl);
-    } catch (err) {
-      console.warn('Autocomplete geocode failed:', err?.message || err);
+    } catch {
       hide(suggestEl);
     }
   }, 300);
@@ -1246,11 +1336,6 @@ unitsBtn.addEventListener('click', () => {
   if (state.currentWeather && state.currentCity) {
     renderWeather(state.currentWeather, state.currentCity);
     renderAirQuality(state.currentAir);
-    // Update maps overlays if they're visible
-    if (state.showWind && mapsOverview.map) {
-      clearWindArrows();
-      renderWindArrows(state.currentCity);
-    }
   }
 });
 
@@ -1272,8 +1357,13 @@ shareBtn.addEventListener('click', async () => {
 saveCurrentBtn.addEventListener('click', () => {
   if (!state.currentCity) return;
   const key = cityKey(state.currentCity);
-  if (state.savedCities.some(c => cityKey(c) === key)) return;
-  state.savedCities.push(state.currentCity);
+  if (state.savedCities.some(c => cityKey(c.city) === key)) return;
+  state.savedCities.push({
+    city: state.currentCity,
+    addedAt: Date.now(),
+    lastViewedAt: Date.now(),
+    isDefault: state.savedCities.length === 0,
+  });
   persistSavedCities();
   renderSavedCities();
 });
@@ -1291,9 +1381,11 @@ notifyBtn.addEventListener('click', async () => {
 
   try {
     const permission = await Notification.requestPermission();
-    updateNotifyButton();
     if (permission === 'granted') {
-      // Re-fetch current alerts immediately so permission change can trigger notifications.
+      const subscribed = await ensurePushSubscription();
+      if (!subscribed) {
+        showErr('Push needs VAPID keys configured on server.');
+      }
       if (state.currentCity) {
         const alerts = await fetchAlerts(state.currentCity.latitude, state.currentCity.longitude).catch(() => ({ features: [] }));
         renderAlerts(alerts);
@@ -1303,6 +1395,7 @@ notifyBtn.addEventListener('click', async () => {
     }
   } catch {
     showErr('Could not request notification permission.');
+  } finally {
     updateNotifyButton();
   }
 });
@@ -1315,8 +1408,9 @@ autoDetectToggle.addEventListener('change', () => {
 lightningToggle.addEventListener('change', () => {
   state.showLightning = lightningToggle.checked;
   localStorage.setItem(STORAGE_KEYS.showLightning, String(state.showLightning));
+  lightningStatus.textContent = state.showLightning ? 'On' : 'Off';
   if (state.currentCity && mapsOverview.map) {
-    clearLightningMarkers();
+    clearLightningLayer();
     if (state.showLightning) renderLightningStrikes(state.currentCity);
   }
 });
@@ -1324,51 +1418,55 @@ lightningToggle.addEventListener('change', () => {
 windToggle.addEventListener('change', () => {
   state.showWind = windToggle.checked;
   localStorage.setItem(STORAGE_KEYS.showWind, String(state.showWind));
+  windStatus.textContent = state.showWind ? 'On' : 'Off';
   if (state.currentCity && mapsOverview.map) {
     clearWindArrows();
     if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
   }
 });
 
-// Maps tab quick toggles
-const mapsLightningToggle = document.getElementById('maps-lightning-toggle');
-const mapsWindToggle = document.getElementById('maps-wind-toggle');
-
-if (mapsLightningToggle) {
-  mapsLightningToggle.addEventListener('click', () => {
-    state.showLightning = !state.showLightning;
-    localStorage.setItem(STORAGE_KEYS.showLightning, String(state.showLightning));
-    mapsLightningToggle.classList.toggle('active', state.showLightning);
-    lightningToggle.checked = state.showLightning;
-    if (state.currentCity && mapsOverview.map) {
-      clearLightningMarkers();
-      if (state.showLightning) renderLightningStrikes(state.currentCity);
-    }
+if (dailyForecastToggle) {
+  dailyForecastToggle.addEventListener('click', () => {
+    if (!state.currentWeather?.daily) return;
+    state.dailyExpanded = !state.dailyExpanded;
+    renderDailyForecast(state.currentWeather.daily);
   });
-  // Set initial state
-  mapsLightningToggle.classList.toggle('active', state.showLightning);
 }
 
-if (mapsWindToggle) {
-  mapsWindToggle.addEventListener('click', () => {
-    state.showWind = !state.showWind;
-    localStorage.setItem(STORAGE_KEYS.showWind, String(state.showWind));
-    mapsWindToggle.classList.toggle('active', state.showWind);
-    windToggle.checked = state.showWind;
-    if (state.currentCity && mapsOverview.map) {
-      clearWindArrows();
-      if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
-    }
+if (contrastToggle) {
+  contrastToggle.addEventListener('change', () => {
+    state.highContrast = contrastToggle.checked;
+    localStorage.setItem(STORAGE_KEYS.highContrast, String(state.highContrast));
+    applyHighContrast();
   });
-  // Set initial state
-  mapsWindToggle.classList.toggle('active', state.showWind);
 }
 
-if (dailyToggleBtn) {
-  dailyToggleBtn.addEventListener('click', () => {
-    state.showExtendedForecast = !state.showExtendedForecast;
-    if (state.currentWeather) {
-      renderDailyForecast(state.currentWeather.daily);
+if (radarOpacityEl) {
+  radarOpacityEl.addEventListener('input', () => {
+    state.radarOpacity = Number(radarOpacityEl.value || 65);
+    localStorage.setItem(STORAGE_KEYS.radarOpacity, String(state.radarOpacity));
+    mapsOverview.setRadarOpacity(state.radarOpacity);
+  });
+}
+
+if (lightningAgeEl) {
+  lightningAgeEl.addEventListener('change', () => {
+    state.lightningAgeMin = Number(lightningAgeEl.value || 15);
+    localStorage.setItem(STORAGE_KEYS.lightningAgeMin, String(state.lightningAgeMin));
+    if (state.showLightning && state.currentCity) {
+      renderLightningStrikes(state.currentCity);
+    }
+  });
+}
+
+if (pushTestBtn) {
+  pushTestBtn.addEventListener('click', async () => {
+    try {
+      await sendTestPush();
+      pushTestBtn.textContent = 'Push sent';
+      setTimeout(() => { pushTestBtn.textContent = 'Send test push'; }, 1500);
+    } catch (e) {
+      showErr(e.message || 'Push test failed.');
     }
   });
 }
@@ -1394,13 +1492,32 @@ function startAutoRefresh() {
   updateUnitsButton();
   updateNotifyButton();
   syncAutoDetectToggle();
-  
-  // Sync lightning and wind toggle states
+
+  // Sync lightning/wind and UI polish toggles.
   lightningToggle.checked = state.showLightning;
+  lightningStatus.textContent = state.showLightning ? 'On' : 'Off';
   windToggle.checked = state.showWind;
-  
+  windStatus.textContent = state.showWind ? 'On' : 'Off';
+  if (contrastToggle) contrastToggle.checked = state.highContrast;
+  if (lightningAgeEl) lightningAgeEl.value = String(state.lightningAgeMin || 15);
+  if (radarOpacityEl) radarOpacityEl.value = String(state.radarOpacity || 65);
+  applyHighContrast();
+  mapsOverview.setRadarOpacity(state.radarOpacity);
+
   renderSavedCities();
   startAutoRefresh();
+
+  // Restore push state if already subscribed.
+  if ('serviceWorker' in navigator && 'PushManager' in window) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const existingSub = await reg.pushManager.getSubscription();
+      state.pushEnabled = Boolean(existingSub);
+    } catch {
+      state.pushEnabled = false;
+    }
+    updateNotifyButton();
+  }
 
   const qs = new URLSearchParams(window.location.search);
   const qLat = Number(qs.get('lat'));
@@ -1423,6 +1540,13 @@ function startAutoRefresh() {
   if (state.autoDetect) {
     const autoLocated = await autoLocateAndLoad();
     if (autoLocated) return;
+  }
+
+  const defaultSaved = getDefaultSavedEntry();
+  if (defaultSaved?.city) {
+    searchInput.value = defaultSaved.city.name;
+    await loadAll(defaultSaved.city, 'default-saved-city');
+    return;
   }
 
   const lastCity = getLastCity();

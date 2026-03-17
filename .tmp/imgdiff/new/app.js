@@ -31,16 +31,6 @@ const STORAGE_KEYS = {
   autoDetect: 'weather.autoDetect',
   showLightning: 'weather.showLightning',
   showWind: 'weather.showWind',
-  showRadarLayer: 'weather.map.radar',
-  showSatelliteLayer: 'weather.map.satellite',
-  showLightningLayer: 'weather.map.lightning',
-  showWindLayer: 'weather.map.wind',
-  showAqiLayer: 'weather.map.aqi',
-  showAlertsLayer: 'weather.map.alerts',
-  showTempMarker: 'weather.map.temp',
-  showSunMoonMarkers: 'weather.map.sunMoon',
-  unifiedMapBaseLayer: 'weather.map.baseLayer',
-  unifiedMapRadarMode: 'weather.map.radarMode',
 };
 
 const state = {
@@ -58,23 +48,7 @@ const state = {
   lastRefreshAt: 0,
   lightningMarkers: [],
   windArrows: [],
-  aqiMarkers: [],
-  alertMarkers: [],
-  tempMarker: null,
-  sunMoonMarkers: [],
   showExtendedForecast: false,
-  unifiedMapLayers: {
-    radar: localStorage.getItem(STORAGE_KEYS.showRadarLayer) !== 'false',
-    satellite: localStorage.getItem(STORAGE_KEYS.showSatelliteLayer) !== 'false',
-    lightning: localStorage.getItem(STORAGE_KEYS.showLightningLayer) !== 'false',
-    wind: localStorage.getItem(STORAGE_KEYS.showWindLayer) !== 'false',
-    aqi: localStorage.getItem(STORAGE_KEYS.showAqiLayer) !== 'false',
-    alerts: localStorage.getItem(STORAGE_KEYS.showAlertsLayer) !== 'false',
-    temp: localStorage.getItem(STORAGE_KEYS.showTempMarker) !== 'false',
-    sunMoon: localStorage.getItem(STORAGE_KEYS.showSunMoonMarkers) !== 'false',
-  },
-  unifiedMapBaseLayer: localStorage.getItem(STORAGE_KEYS.unifiedMapBaseLayer) || 'dark',
-  unifiedMapRadarMode: localStorage.getItem(STORAGE_KEYS.unifiedMapRadarMode) || 'radar',
 };
 
 // ── DOM ──────────────────────────────────────────────────────────────────────
@@ -106,6 +80,21 @@ const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 const showErr = msg => { errorMsg.textContent = msg; show(errorMsg); };
 const clearErr = () => { errorMsg.textContent = ''; hide(errorMsg); };
+
+async function cleanupServiceWorkerInterceptors() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(reg => reg.unregister()));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(key => caches.delete(key)));
+    }
+  } catch (e) {
+    console.warn('Service worker/cache cleanup failed:', e?.message || e);
+  }
+}
 
 function compassDir(deg) {
   return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg / 45) % 8];
@@ -341,7 +330,6 @@ function renderSavedCities() {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
-
 function activateTab(tabName) {
   document.querySelectorAll('.tab, .bottom-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach(p => hide(p));
@@ -349,23 +337,24 @@ function activateTab(tabName) {
   show(document.getElementById('tab-' + tabName));
 
   if (tabName === 'conditions') {
-    setTimeout(() => { radarEmbed && radarEmbed.refresh && radarEmbed.refresh(); }, 60);
+    setTimeout(() => { radarEmbed.refresh && radarEmbed.refresh(); }, 60);
   }
-  if (tabName === 'unified-map') {
-    setTimeout(() => { unifiedMap && unifiedMap.refresh && unifiedMap.refresh(); }, 50);
+  if (tabName === 'radar-full') {
+    setTimeout(() => { radarFull.refresh && radarFull.refresh(); }, 50);
+  }
+  if (tabName === 'maps') {
+    setTimeout(refreshMapsOverview, 80);
   }
 }
+
 document.querySelectorAll('.tab, .bottom-tab').forEach(btn => {
   btn.addEventListener('click', () => activateTab(btn.dataset.tab));
 });
 
+document.getElementById('open-radar-tab').addEventListener('click', () => {
+  activateTab('radar-full');
+});
 
-const openMapTabBtn = document.getElementById('open-map-tab');
-if (openMapTabBtn) {
-  openMapTabBtn.addEventListener('click', () => {
-    activateTab('unified-map');
-  });
-}
 // ── APIs ─────────────────────────────────────────────────────────────────────
 async function geocode(q) {
   const r = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
@@ -505,7 +494,7 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
     if (!frame) return;
 
     if (!layers[mode][frame.time]) {
-      layers[mode][frame.time] = L.tileLayer(frameTileUrl(frame), { opacity: 0, maxZoom: 17 });
+      layers[mode][frame.time] = L.tileLayer(frameTileUrl(frame), { opacity: 0, maxZoom: 15 });
     }
 
     Object.values(layers.radar).forEach(l => {
@@ -844,15 +833,15 @@ function renderWindArrows(city) {
     const endLon = offsetLon + arrowLength * Math.sin(radians);
     
     // Draw arrow line with gradient color based on wind speed
-    const color = windSpeed > 20 ? '#ff3333' : windSpeed > 10 ? '#ffaa00' : '#4a90e2';
-    const weight = 2.5 + (i % 2);
+    const color = windSpeed > 20 ? '#ff4444' : windSpeed > 10 ? '#ffaa00' : '#4a90e2';
+    const weight = 1 + (i % 2);
     
     const arrow = L.polyline(
       [[offsetLat, offsetLon], [endLat, endLon]],
       {
         color: color,
         weight: weight,
-        opacity: 1.0,
+        opacity: 0.7,
         smooth: true,
       }
     ).bindPopup(`💨 Wind: ${speedDisplay(windSpeed)} ${speedUnit()}<br>Direction: ${compassDirFull(windDir)}`);
@@ -861,7 +850,7 @@ function renderWindArrows(city) {
     state.windArrows.push(arrow);
     
     // Draw arrow head
-    const headSize = 0.05;
+    const headSize = 0.03;
     const arrowHeadLat1 = endLat - headSize * Math.cos(radians + Math.PI * 0.15);
     const arrowHeadLon1 = endLon - headSize * Math.sin(radians + Math.PI * 0.15);
     const arrowHeadLat2 = endLat - headSize * Math.cos(radians - Math.PI * 0.15);
@@ -872,7 +861,7 @@ function renderWindArrows(city) {
       {
         color: color,
         weight: weight,
-        opacity: 1.0,
+        opacity: 0.7,
       }
     );
     
@@ -1391,6 +1380,7 @@ function startAutoRefresh() {
 
 // ── Default city / query link load ───────────────────────────────────────────
 (async () => {
+  await cleanupServiceWorkerInterceptors();
   updateUnitsButton();
   updateNotifyButton();
   syncAutoDetectToggle();

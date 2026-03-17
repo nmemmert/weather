@@ -22,7 +22,8 @@
     <h1>NeCloud Weather</h1>
     <nav class="tabs">
       <button class="tab active" data-tab="conditions">Conditions</button>
-      <button class="tab" data-tab="unified-map">Map</button>
+      <button class="tab" data-tab="radar-full">Radar</button>
+      <button class="tab" data-tab="maps">Maps</button>
       <button class="tab" data-tab="alerts">Alerts</button>
       <button class="tab" data-tab="settings">Settings</button>
     </nav>
@@ -192,7 +193,7 @@
       <div class="section-head">
         <span class="section-label">Radar</span>
         <span class="section-note">
-          <button class="link-btn" id="open-map-tab">Open full map →</button>
+          <button class="link-btn" id="open-radar-tab">Open full radar →</button>
         </span>
       </div>
       <div class="radar-embed-wrap">
@@ -229,94 +230,80 @@
     </div>
   </div>
 
-  <!-- ── TAB: UNIFIED MAP ── -->
-  <div id="tab-unified-map" class="tab-panel hidden">
-    <div class="unified-map-wrap">
-      <!-- Map Controls -->
-      <div class="map-controls-header">
-        <div class="map-controls-row">
-          <label for="base-map-select" class="control-label">Base Map:</label>
-          <select id="base-map-select" class="map-select">
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-            <option value="satellite">Satellite</option>
-          </select>
-        </div>
-        
-        <div class="map-controls-toggle-grid">
-          <label class="toggle-control">
-            <input type="checkbox" id="toggle-radar" data-layer="radar" checked>
-            <span class="toggle-label">📡 Radar</span>
-          </label>
-          <label class="toggle-control">
-            <input type="checkbox" id="toggle-satellite" data-layer="satellite">
-            <span class="toggle-label">🛰️ Satellite</span>
-          </label>
-          <label class="toggle-control">
-            <input type="checkbox" id="toggle-lightning" data-layer="lightning">
-            <span class="toggle-label">⚡ Lightning</span>
-          </label>
-          <label class="toggle-control">
-            <input type="checkbox" id="toggle-wind" data-layer="wind" checked>
-            <span class="toggle-label">💨 Wind</span>
-          </label>
-          <label class="toggle-control">
-            <input type="checkbox" id="toggle-aqi" data-layer="aqi">
-            <span class="toggle-label">💨 Air Quality</span>
-          </label>
-          <label class="toggle-control">
-            <input type="checkbox" id="toggle-alerts" data-layer="alerts">
-            <span class="toggle-label">⚠️ Alerts</span>
-          </label>
-          <label class="toggle-control">
-            <input type="checkbox" id="toggle-temp" data-layer="temp" checked>
-            <span class="toggle-label">🌡️ Temperature</span>
-          </label>
-          <label class="toggle-control">
-            <input type="checkbox" id="toggle-sun-moon" data-layer="sun-moon">
-            <span class="toggle-label">☀️ Sun/Moon</span>
-          </label>
-        </div>
-      </div>
-
-      <!-- Main Map -->
-      <div id="unified-map" class="unified-map-container"></div>
-
-      <!-- Radar/Satellite Timeline Controls -->
-      <div class="map-timeline-wrap hidden" id="timeline-controls">
-        <div class="radar-controls">
-          <button id="timeline-play" class="radar-btn play-btn" title="Play/Pause">▶</button>
-          <div class="radar-timeline" id="timeline-slider"></div>
-          <span id="timeline-timestamp" class="radar-ts">--</span>
-        </div>
+  <!-- ── TAB: FULL RADAR ── -->
+  <div id="tab-radar-full" class="tab-panel hidden">
+    <div class="radar-full-wrap">
+      <div id="radar-full" class="radar-map radar-map-full"></div>
+      <div class="radar-controls radar-controls-full">
+        <button id="full-play" class="radar-btn play-btn" title="Play/Pause">▶</button>
+        <button id="full-layer" class="radar-btn layer-btn" title="Toggle radar/satellite">R</button>
+        <div class="radar-timeline" id="full-timeline"></div>
+        <span id="full-timestamp" class="radar-ts">--</span>
         <div class="radar-legend">
           <span class="legend-label">Light</span>
           <div class="legend-bar"></div>
           <span class="legend-label">Heavy</span>
         </div>
       </div>
+    </div>
+    <p class="radar-attribution">Radar tiles © <a href="https://www.rainviewer.com" target="_blank">RainViewer</a> · Map © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a></p>
+  </div>
 
-      <!-- Data Panel -->
-      <div class="map-data-panel hidden" id="data-panel">
-        <div class="panel-location">
-          <span id="panel-location-name">--</span>
+  <!-- ── TAB: MAPS ── -->
+  <div id="tab-maps" class="tab-panel hidden">
+    <div class="maps-wrap">
+      <div class="maps-header">
+        <h3>Live Weather Overlays</h3>
+        <div class="maps-quick-toggles">
+          <button id="maps-lightning-toggle" class="overlay-toggle lightning-btn" title="Toggle lightning strikes">⚡ Lightning</button>
+          <button id="maps-wind-toggle" class="overlay-toggle wind-btn active" title="Toggle wind overlay">💨 Wind</button>
         </div>
-        <div class="panel-data">
-          <div class="data-item">
-            <span class="data-label">Wind</span>
-            <span id="panel-wind-speed">--</span>
+      </div>
+      
+      <div id="map-overview" class="radar-map map-overview"></div>
+      
+      <div class="maps-legend">
+        <div class="legend-section">
+          <div class="legend-title">⚡ Lightning Strikes</div>
+          <div class="legend-item">
+            <svg width="16" height="16" viewBox="0 0 16 16">
+              <circle cx="8" cy="8" r="5" fill="#ffeb3b" stroke="#ff6f00" stroke-width="1.5"/>
+            </svg>
+            <span>Recent strike location</span>
           </div>
-          <div class="data-item">
-            <span class="data-label">Direction</span>
-            <span id="panel-wind-dir">--</span>
+        </div>
+        <div class="legend-section">
+          <div class="legend-title">💨 Wind Flow</div>
+          <div class="legend-item">
+            <svg width="32" height="16" viewBox="0 0 32 16">
+              <line x1="2" y1="8" x2="24" y2="8" stroke="#4a90e2" stroke-width="2"/>
+              <polygon points="24,8 20,5 20,11" fill="#4a90e2"/>
+            </svg>
+            <span>Wind direction & speed</span>
           </div>
-          <div class="data-item">
-            <span class="data-label">Temp</span>
-            <span id="panel-temp">--</span>
-          </div>
-          <div class="data-item">
-            <span class="data-label">AQI</span>
-            <span id="panel-aqi">--</span>
+        </div>
+      </div>
+
+      <div class="maps-data">
+        <div class="maps-card">
+          <div class="card-title">Location</div>
+          <div id="maps-location" class="maps-value">--</div>
+        </div>
+        <div class="maps-card wind-card">
+          <div class="card-title">Wind Data</div>
+          <div class="wind-stats">
+            <div class="wind-stat">
+              <span class="stat-label">Speed</span>
+              <span id="wind-speed" class="stat-value">--</span>
+            </div>
+            <div class="wind-stat">
+              <span class="stat-label">Gust</span>
+              <span id="wind-gust" class="stat-value">--</span>
+            </div>
+            <div class="wind-stat">
+              <span class="stat-label">Direction</span>
+              <span id="wind-direction" class="stat-value">--</span>
+            </div>
           </div>
         </div>
       </div>
@@ -363,6 +350,22 @@
         <span class="settings-label">Units</span>
         <button id="units-btn-settings" class="settings-btn" type="button">US</button>
       </div>
+
+      <div class="settings-row">
+        <span class="settings-label">Lightning strikes on map</span>
+        <label class="switch-toggle">
+          <input id="lightning-toggle" type="checkbox">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="settings-row">
+        <span class="settings-label">Wind overlay on map</span>
+        <label class="switch-toggle">
+          <input id="wind-toggle" type="checkbox">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
     </div>
   </div>
 
@@ -373,9 +376,13 @@
     <span class="bottom-icon">⛅</span>
     <span class="bottom-label">Now</span>
   </button>
-  <button class="bottom-tab" data-tab="unified-map" type="button">
+  <button class="bottom-tab" data-tab="radar-full" type="button">
+    <span class="bottom-icon">📡</span>
+    <span class="bottom-label">Radar</span>
+  </button>
+  <button class="bottom-tab" data-tab="maps" type="button">
     <span class="bottom-icon">🗺️</span>
-    <span class="bottom-label">Map</span>
+    <span class="bottom-label">Maps</span>
   </button>
   <button class="bottom-tab" data-tab="alerts" type="button">
     <span class="bottom-icon">⚠️</span>
