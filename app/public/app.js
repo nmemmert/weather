@@ -479,7 +479,7 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
     if (!frame) return;
 
     if (!layers[mode][frame.time]) {
-      layers[mode][frame.time] = L.tileLayer(frameTileUrl(frame), { opacity: 0, maxZoom: 15 });
+      layers[mode][frame.time] = L.tileLayer(frameTileUrl(frame), { opacity: 0, maxZoom: 17 });
     }
 
     Object.values(layers.radar).forEach(l => {
