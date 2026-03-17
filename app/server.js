@@ -277,23 +277,48 @@ app.get('/api/alerts', async (req, res) => {
   }
 });
 
-// RainViewer timestamps proxy
+// Radar/satellite tile configuration
 app.get('/api/radar/times', async (req, res) => {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
-    
-    const r = await fetch('https://api.rainviewer.com/public/weather-maps.json', {
-      signal: controller.signal,
+    const now = Math.floor(Date.now() / 1000);
+
+    // IEM NEXRAD tile service (US radar, public/free) with historical offsets for animation.
+    const radarLayerBase = 'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0';
+    const radarOffsetsMin = [55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0];
+    const radarPast = radarOffsetsMin.map(offset => {
+      const layer = offset === 0 ? 'nexrad-n0q-900913' : `nexrad-n0q-900913-m${String(offset).padStart(2, '0')}m`;
+      return {
+        time: now - (offset * 60),
+        url: `${radarLayerBase}/${layer}/{z}/{x}/{y}.png`,
+        isForecast: false,
+        maxNativeZoom: 12,
+      };
     });
-    clearTimeout(timeoutId);
-    if (!r.ok) {
-      throw new Error(`RainViewer API returned ${r.status}`);
-    }
-    const data = await r.json();
-    res.json(data);
+
+    // IEM GOES East cloud/satellite frames for animation.
+    const satOffsetsMin = [30, 25, 20, 15, 10, 5, 0];
+    const satelliteInfrared = satOffsetsMin.map(offset => {
+      const layer = offset === 0 ? 'goes_east' : `goes_east_m${String(offset).padStart(2, '0')}m`;
+      return {
+        time: now - (offset * 60),
+        url: `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/${layer}/{z}/{x}/{y}.png`,
+        isForecast: false,
+        maxNativeZoom: 10,
+      };
+    });
+
+    res.json({
+      provider: 'iem-radar-rainviewer-sat',
+      radar: {
+        past: radarPast,
+        nowcast: [],
+      },
+      satellite: {
+        infrared: satelliteInfrared,
+      },
+    });
   } catch (e) {
-    console.error('Radar times fetch error:', e.message);
+    console.error('Radar config error:', e.message);
     res.status(500).json({ error: 'Radar times failed', detail: e.message });
   }
 });
