@@ -818,15 +818,15 @@ function renderWindArrows(city) {
     const endLon = offsetLon + arrowLength * Math.sin(radians);
     
     // Draw arrow line with gradient color based on wind speed
-    const color = windSpeed > 20 ? '#ff4444' : windSpeed > 10 ? '#ffaa00' : '#4a90e2';
-    const weight = 1 + (i % 2);
+    const color = windSpeed > 20 ? '#ff3333' : windSpeed > 10 ? '#ffaa00' : '#4a90e2';
+    const weight = 2.5 + (i % 2);
     
     const arrow = L.polyline(
       [[offsetLat, offsetLon], [endLat, endLon]],
       {
         color: color,
         weight: weight,
-        opacity: 0.7,
+        opacity: 1.0,
         smooth: true,
       }
     ).bindPopup(`💨 Wind: ${speedDisplay(windSpeed)} ${speedUnit()}<br>Direction: ${compassDirFull(windDir)}`);
@@ -835,7 +835,7 @@ function renderWindArrows(city) {
     state.windArrows.push(arrow);
     
     // Draw arrow head
-    const headSize = 0.03;
+    const headSize = 0.05;
     const arrowHeadLat1 = endLat - headSize * Math.cos(radians + Math.PI * 0.15);
     const arrowHeadLon1 = endLon - headSize * Math.sin(radians + Math.PI * 0.15);
     const arrowHeadLat2 = endLat - headSize * Math.cos(radians - Math.PI * 0.15);
@@ -846,7 +846,7 @@ function renderWindArrows(city) {
       {
         color: color,
         weight: weight,
-        opacity: 0.7,
+        opacity: 1.0,
       }
     );
     
