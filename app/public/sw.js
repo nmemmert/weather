@@ -1,8 +1,12 @@
 'use strict';
 
-const CACHE = 'weather-v1';
+self.addEventListener('message', event => {
+  if (event.data === 'skipWaiting') self.skipWaiting();
+});
 
-// App shell — cached on install for offline use
+const CACHE = 'weather-v5';
+
+// App shell cached on install for offline resilience.
 const PRECACHE = [
   '/',
   '/app.js',
@@ -22,9 +26,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(
-        keys.filter(k => k !== CACHE).map(k => caches.delete(k))
-      ))
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -33,7 +35,7 @@ self.addEventListener('fetch', event => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET, API calls, and map/radar tile requests
+  // Never intercept API/tile traffic.
   if (
     request.method !== 'GET' ||
     url.pathname.startsWith('/api/') ||
@@ -45,11 +47,33 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  const isShell =
+    request.mode === 'navigate' ||
+    request.destination === 'document' ||
+    request.destination === 'script' ||
+    request.destination === 'style';
+
+  if (isShell) {
+    // Network-first keeps app updates fresh; cache as fallback.
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE).then(cache => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then(cached => cached || caches.match('/')))
+    );
+    return;
+  }
+
+  // Cache-first for static assets.
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;
       return fetch(request).then(response => {
-        // Only cache successful same-origin and trusted CDN responses
         if (response.ok && (
           url.origin === self.location.origin ||
           url.hostname.includes('googleapis') ||
