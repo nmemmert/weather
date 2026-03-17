@@ -51,6 +51,7 @@ const state = {
   currentCity: null,
   currentWeather: null,
   currentAir: null,
+  currentAlerts: null,
   currentSource: 'startup',
   savedCities: JSON.parse(localStorage.getItem(STORAGE_KEYS.savedCities) || '[]'),
   alertIdsSeen: new Set(),
@@ -465,8 +466,15 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
     attributionControl: false,
   });
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
+  const baseMapType = mapEl?.id === 'unified-map' ? state.unifiedMapBaseLayer : 'dark';
+  const baseMapUrl = baseMapType === 'light'
+    ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+    : baseMapType === 'satellite'
+      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+      : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+
+  L.tileLayer(baseMapUrl, {
+    maxZoom: baseMapType === 'satellite' ? 18 : 19,
   }).addTo(map);
 
   let radarFrames = [];
@@ -690,21 +698,27 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
   return { map, panTo, startPlay, stopPlay, refresh };
 }
 
-const radarEmbed = createRadar(
-  document.getElementById('radar-embed'),
-  document.getElementById('embed-timeline'),
-  document.getElementById('embed-play'),
-  document.getElementById('embed-timestamp'),
-  document.getElementById('embed-layer')
-);
+const radarEmbedEl = document.getElementById('radar-embed');
+const radarEmbed = radarEmbedEl
+  ? createRadar(
+      radarEmbedEl,
+      document.getElementById('embed-timeline'),
+      document.getElementById('embed-play'),
+      document.getElementById('embed-timestamp'),
+      document.getElementById('embed-layer')
+    )
+  : { map: null, panTo: () => {}, startPlay: () => {}, stopPlay: () => {}, refresh: () => {} };
 
-const radarFull = createRadar(
-  document.getElementById('radar-full'),
-  document.getElementById('full-timeline'),
-  document.getElementById('full-play'),
-  document.getElementById('full-timestamp'),
-  document.getElementById('full-layer')
-);
+const radarFullEl = document.getElementById('radar-full');
+const radarFull = radarFullEl
+  ? createRadar(
+      radarFullEl,
+      document.getElementById('full-timeline'),
+      document.getElementById('full-play'),
+      document.getElementById('full-timestamp'),
+      document.getElementById('full-layer')
+    )
+  : { map: null, panTo: () => {}, startPlay: () => {}, stopPlay: () => {}, refresh: () => {} };
 
 function createOverviewMap(mapEl) {
   const map = L.map(mapEl, {
@@ -758,9 +772,17 @@ function refreshMapsOverview() {
 
   clearLightningMarkers();
   clearWindArrows();
+  clearAqiMarkers();
+  clearAlertMarkers();
+  clearSunMoonMarkers();
+  clearTempMarker();
 
-  if (state.showLightning) renderLightningStrikes(state.currentCity);
-  if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
+  if (state.showLightning || state.unifiedMapLayers.lightning) renderLightningStrikes(state.currentCity);
+  if ((state.showWind || state.unifiedMapLayers.wind) && state.currentWeather) renderWindArrows(state.currentCity);
+  renderAqiMarker(state.currentCity);
+  renderAlertMarker(state.currentCity);
+  renderTempMarker(state.currentCity);
+  renderSunMoonMarker(state.currentCity);
 }
 
 function renderLightningStrikes(city) {
@@ -822,9 +844,12 @@ function renderWindArrows(city) {
   const windDir = current.wind_direction_10m || 0;
   
   // Update wind data display
-  document.getElementById('wind-speed').textContent = `${speedDisplay(windSpeed)} ${speedUnit()}`;
-  document.getElementById('wind-gust').textContent = windGust > 0 ? `${speedDisplay(windGust)} ${speedUnit()}` : '--';
-  document.getElementById('wind-direction').textContent = compassDirFull(windDir);
+  const windSpeedEl = document.getElementById('wind-speed');
+  const windGustEl = document.getElementById('wind-gust');
+  const windDirectionEl = document.getElementById('wind-direction');
+  if (windSpeedEl) windSpeedEl.textContent = `${speedDisplay(windSpeed)} ${speedUnit()}`;
+  if (windGustEl) windGustEl.textContent = windGust > 0 ? `${speedDisplay(windGust)} ${speedUnit()}` : '--';
+  if (windDirectionEl) windDirectionEl.textContent = compassDirFull(windDir);
   
   // Draw multiple wind barbs around the city center to show wind strength
   const lat = parseFloat(city.latitude);
@@ -881,7 +906,120 @@ function renderWindArrows(city) {
   }
 }
 
-const mapsOverview = createOverviewMap(document.getElementById('map-overview'));
+function clearAqiMarkers() {
+  if (!mapsOverview.map) return;
+  state.aqiMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
+  state.aqiMarkers = [];
+}
+
+function clearAlertMarkers() {
+  if (!mapsOverview.map) return;
+  state.alertMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
+  state.alertMarkers = [];
+}
+
+function clearSunMoonMarkers() {
+  if (!mapsOverview.map) return;
+  state.sunMoonMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
+  state.sunMoonMarkers = [];
+}
+
+function clearTempMarker() {
+  if (!mapsOverview.map || !state.tempMarker) return;
+  mapsOverview.map.removeLayer(state.tempMarker);
+  state.tempMarker = null;
+}
+
+function renderAqiMarker(city) {
+  if (!mapsOverview.map || !state.unifiedMapLayers.aqi || !state.currentAir?.current) return;
+  clearAqiMarkers();
+  const aqi = state.currentAir.current.us_aqi;
+  if (aqi == null) return;
+  const color = aqi > 150 ? '#d32f2f' : aqi > 100 ? '#f57c00' : aqi > 50 ? '#fbc02d' : '#388e3c';
+  const marker = L.circleMarker([city.latitude, city.longitude], {
+    radius: 9,
+    fillColor: color,
+    fillOpacity: 0.85,
+    color: '#fff',
+    weight: 2,
+  }).bindPopup(`AQI ${aqi}`);
+  marker.addTo(mapsOverview.map);
+  state.aqiMarkers.push(marker);
+}
+
+function renderAlertMarker(city) {
+  if (!mapsOverview.map || !state.unifiedMapLayers.alerts || !state.currentAlerts?.features?.length) return;
+  clearAlertMarkers();
+  const marker = L.circleMarker([city.latitude, city.longitude], {
+    radius: 10,
+    fillColor: '#d32f2f',
+    fillOpacity: 0.8,
+    color: '#fff',
+    weight: 2,
+  }).bindPopup(`${state.currentAlerts.features.length} active alert(s)`);
+  marker.addTo(mapsOverview.map);
+  state.alertMarkers.push(marker);
+}
+
+function renderTempMarker(city) {
+  if (!mapsOverview.map || !state.unifiedMapLayers.temp || !state.currentWeather?.current) return;
+  clearTempMarker();
+  const temp = tempDisplay(state.currentWeather.current.temperature_2m);
+  const marker = L.circleMarker([city.latitude, city.longitude], {
+    radius: 11,
+    fillColor: '#1e88e5',
+    fillOpacity: 0.9,
+    color: '#fff',
+    weight: 2,
+  }).bindPopup(`${temp}°${tempUnit()}`);
+  marker.addTo(mapsOverview.map);
+  state.tempMarker = marker;
+}
+
+function renderSunMoonMarker(city) {
+  if (!mapsOverview.map || !state.unifiedMapLayers.sunMoon || !state.currentWeather?.daily) return;
+  clearSunMoonMarkers();
+  const daily = state.currentWeather.daily;
+  const sunrise = formatClock(daily.sunrise?.[0]);
+  const sunset = formatClock(daily.sunset?.[0]);
+  const marker = L.circleMarker([city.latitude, city.longitude], {
+    radius: 8,
+    fillColor: '#fbc02d',
+    fillOpacity: 0.8,
+    color: '#fff',
+    weight: 2,
+  }).bindPopup(`Sunrise: ${sunrise}<br>Sunset: ${sunset}`);
+  marker.addTo(mapsOverview.map);
+  state.sunMoonMarkers.push(marker);
+}
+
+const unifiedMapModeButton = document.createElement('button');
+let unifiedMapMode = 'radar';
+
+const unifiedMapEl = document.getElementById('unified-map');
+const legacyMapEl = document.getElementById('map-overview');
+const mapsOverview = unifiedMapEl
+  ? createRadar(
+      unifiedMapEl,
+      document.getElementById('timeline-slider'),
+      document.getElementById('timeline-play'),
+      document.getElementById('timeline-timestamp'),
+      unifiedMapModeButton
+    )
+  : (legacyMapEl
+      ? createOverviewMap(legacyMapEl)
+      : { map: null, panTo: () => {}, refresh: () => {} });
+
+const unifiedMap = mapsOverview;
+
+unifiedMapModeButton.addEventListener('click', () => {
+  unifiedMapMode = unifiedMapMode === 'radar' ? 'satellite' : 'radar';
+  localStorage.setItem(STORAGE_KEYS.unifiedMapRadarMode, unifiedMapMode);
+});
+
+if (unifiedMapEl && state.unifiedMapRadarMode === 'satellite') {
+  unifiedMapModeButton.click();
+}
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 function renderWeather(data, city) {
@@ -914,6 +1052,19 @@ function renderWeather(data, city) {
   document.getElementById('cur-dew').textContent = calcDewpoint(c.temperature_2m, c.relative_humidity_2m);
   document.getElementById('cur-pres').textContent = Math.round(c.surface_pressure);
   document.getElementById('cur-vis').textContent = visDisplay(c.visibility);
+
+  const panelLocation = document.getElementById('panel-location-name');
+  const panelWindSpeed = document.getElementById('panel-wind-speed');
+  const panelWindDir = document.getElementById('panel-wind-dir');
+  const panelTemp = document.getElementById('panel-temp');
+  const panelAqi = document.getElementById('panel-aqi');
+  const panelWrap = document.getElementById('data-panel');
+  if (panelLocation) panelLocation.textContent = cityLabel(city) || city.name || '--';
+  if (panelWindSpeed) panelWindSpeed.textContent = `${speedDisplay(c.wind_speed_10m)} ${speedUnit()}`;
+  if (panelWindDir) panelWindDir.textContent = compassDirFull(c.wind_direction_10m || 0);
+  if (panelTemp) panelTemp.textContent = `${tempDisplay(c.temperature_2m)}°${tempUnit()}`;
+  if (panelAqi) panelAqi.textContent = state.currentAir?.current?.us_aqi ?? '--';
+  if (panelWrap) panelWrap.classList.remove('hidden');
   document.getElementById('cur-uv').textContent = Math.round(d.uv_index_max[0] ?? 0);
   document.getElementById('cur-cloud').textContent = c.cloud_cover;
   document.querySelectorAll('.wind-unit, .gust-unit').forEach(el => el.textContent = speedUnit());
@@ -1023,6 +1174,9 @@ function renderAirQuality(data) {
   document.getElementById('aqi-us').textContent = cur.us_aqi ?? '--';
   document.getElementById('pm25').textContent = cur.pm2_5 != null ? `${Number(cur.pm2_5).toFixed(1)} ug/m3` : '--';
   document.getElementById('pollen').textContent = pollen > 0 ? pollen.toFixed(1) : '--';
+
+  const panelAqi = document.getElementById('panel-aqi');
+  if (panelAqi) panelAqi.textContent = cur.us_aqi ?? '--';
 }
 
 function renderAlerts(data) {
@@ -1100,6 +1254,7 @@ async function loadAll(city, source) {
 
     state.currentWeather = weather;
     state.currentAir = air;
+    state.currentAlerts = alerts;
     state.lastRefreshAt = Date.now();
 
     // Keep weather load resilient: map/radar/render hiccups should not fail the whole page.
@@ -1123,8 +1278,12 @@ async function loadAll(city, source) {
     }
     
     try {
-      if (state.showLightning) renderLightningStrikes(city);
-      if (state.showWind) renderWindArrows(city);
+      if (state.showLightning || state.unifiedMapLayers.lightning) renderLightningStrikes(city);
+      if (state.showWind || state.unifiedMapLayers.wind) renderWindArrows(city);
+      renderAqiMarker(city);
+      renderAlertMarker(city);
+      renderTempMarker(city);
+      renderSunMoonMarker(city);
     } catch (mapOverlayErr) {
       console.warn('Map overlay render error:', mapOverlayErr);
     }
@@ -1312,23 +1471,27 @@ autoDetectToggle.addEventListener('change', () => {
   localStorage.setItem(STORAGE_KEYS.autoDetect, String(state.autoDetect));
 });
 
-lightningToggle.addEventListener('change', () => {
-  state.showLightning = lightningToggle.checked;
-  localStorage.setItem(STORAGE_KEYS.showLightning, String(state.showLightning));
-  if (state.currentCity && mapsOverview.map) {
-    clearLightningMarkers();
-    if (state.showLightning) renderLightningStrikes(state.currentCity);
-  }
-});
+if (lightningToggle) {
+  lightningToggle.addEventListener('change', () => {
+    state.showLightning = lightningToggle.checked;
+    localStorage.setItem(STORAGE_KEYS.showLightning, String(state.showLightning));
+    if (state.currentCity && mapsOverview.map) {
+      clearLightningMarkers();
+      if (state.showLightning) renderLightningStrikes(state.currentCity);
+    }
+  });
+}
 
-windToggle.addEventListener('change', () => {
-  state.showWind = windToggle.checked;
-  localStorage.setItem(STORAGE_KEYS.showWind, String(state.showWind));
-  if (state.currentCity && mapsOverview.map) {
-    clearWindArrows();
-    if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
-  }
-});
+if (windToggle) {
+  windToggle.addEventListener('change', () => {
+    state.showWind = windToggle.checked;
+    localStorage.setItem(STORAGE_KEYS.showWind, String(state.showWind));
+    if (state.currentCity && mapsOverview.map) {
+      clearWindArrows();
+      if (state.showWind && state.currentWeather) renderWindArrows(state.currentCity);
+    }
+  });
+}
 
 // Maps tab quick toggles
 const mapsLightningToggle = document.getElementById('maps-lightning-toggle');
@@ -1364,6 +1527,93 @@ if (mapsWindToggle) {
   mapsWindToggle.classList.toggle('active', state.showWind);
 }
 
+const mapLayerStorageKey = {
+  radar: STORAGE_KEYS.showRadarLayer,
+  satellite: STORAGE_KEYS.showSatelliteLayer,
+  lightning: STORAGE_KEYS.showLightningLayer,
+  wind: STORAGE_KEYS.showWindLayer,
+  aqi: STORAGE_KEYS.showAqiLayer,
+  alerts: STORAGE_KEYS.showAlertsLayer,
+  temp: STORAGE_KEYS.showTempMarker,
+  'sun-moon': STORAGE_KEYS.showSunMoonMarkers,
+};
+
+function setRadarLayerVisible(visible) {
+  if (!mapsOverview?.map) return;
+  mapsOverview.map.eachLayer(layer => {
+    if (!layer?._url) return;
+    if (layer._url.includes('tilecache.rainviewer.com')) {
+      if (visible && !mapsOverview.map.hasLayer(layer)) mapsOverview.map.addLayer(layer);
+      if (!visible && mapsOverview.map.hasLayer(layer)) mapsOverview.map.removeLayer(layer);
+    }
+  });
+}
+
+document.querySelectorAll('#tab-unified-map input[type="checkbox"][data-layer]').forEach(input => {
+  const layerName = input.dataset.layer;
+  input.checked = layerName === 'sun-moon'
+    ? state.unifiedMapLayers.sunMoon
+    : !!state.unifiedMapLayers[layerName];
+
+  input.addEventListener('change', () => {
+    const enabled = input.checked;
+    if (layerName === 'sun-moon') {
+      state.unifiedMapLayers.sunMoon = enabled;
+    } else {
+      state.unifiedMapLayers[layerName] = enabled;
+    }
+
+    const storageKey = mapLayerStorageKey[layerName];
+    if (storageKey) localStorage.setItem(storageKey, String(enabled));
+
+    if (layerName === 'radar') {
+      if (!enabled && state.unifiedMapLayers.satellite) {
+        state.unifiedMapLayers.satellite = false;
+        const satToggle = document.getElementById('toggle-satellite');
+        if (satToggle) satToggle.checked = false;
+      }
+      setRadarLayerVisible(enabled);
+    }
+
+    if (layerName === 'satellite') {
+      if (enabled) {
+        state.unifiedMapLayers.radar = true;
+        const radarToggle = document.getElementById('toggle-radar');
+        if (radarToggle) radarToggle.checked = true;
+        if (unifiedMapMode !== 'satellite') unifiedMapModeButton.click();
+      } else if (unifiedMapMode !== 'radar') {
+        unifiedMapModeButton.click();
+      }
+    }
+
+    if (state.currentCity) refreshMapsOverview();
+  });
+});
+
+const baseMapSelect = document.getElementById('base-map-select');
+if (baseMapSelect) {
+  baseMapSelect.value = state.unifiedMapBaseLayer;
+  baseMapSelect.addEventListener('change', () => {
+    state.unifiedMapBaseLayer = baseMapSelect.value;
+    localStorage.setItem(STORAGE_KEYS.unifiedMapBaseLayer, state.unifiedMapBaseLayer);
+    if (state.currentCity) {
+      const city = state.currentCity;
+      const zoom = mapsOverview?.map?.getZoom?.() || 6;
+      if (mapsOverview?.map?.remove) mapsOverview.map.remove();
+      const replacement = createRadar(
+        document.getElementById('unified-map'),
+        document.getElementById('timeline-slider'),
+        document.getElementById('timeline-play'),
+        document.getElementById('timeline-timestamp'),
+        unifiedMapModeButton
+      );
+      Object.assign(mapsOverview, replacement);
+      mapsOverview.panTo(city.latitude, city.longitude, zoom);
+      refreshMapsOverview();
+    }
+  });
+}
+
 if (dailyToggleBtn) {
   dailyToggleBtn.addEventListener('click', () => {
     state.showExtendedForecast = !state.showExtendedForecast;
@@ -1396,11 +1646,16 @@ function startAutoRefresh() {
   syncAutoDetectToggle();
   
   // Sync lightning and wind toggle states
-  lightningToggle.checked = state.showLightning;
-  windToggle.checked = state.showWind;
+  if (lightningToggle) lightningToggle.checked = state.showLightning;
+  if (windToggle) windToggle.checked = state.showWind;
   
   renderSavedCities();
   startAutoRefresh();
+
+  const timelineControls = document.getElementById('timeline-controls');
+  if (timelineControls && unifiedMapEl) {
+    timelineControls.classList.remove('hidden');
+  }
 
   const qs = new URLSearchParams(window.location.search);
   const qLat = Number(qs.get('lat'));
