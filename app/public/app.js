@@ -425,7 +425,6 @@ async function fetchWeather(lat, lon, tz) {
 
 async function fetchAirQuality(lat, lon, tz) {
   const url = `/api/air-quality?lat=${lat}&lon=${lon}&tz=${encodeURIComponent(tz||'auto')}`;
-  console.log('Fetching air quality from:', url);
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Air quality fetch failed with status ${r.status}`);
   return r.json();
@@ -640,13 +639,6 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
           url: f.url,
           maxNativeZoom: f.maxNativeZoom,
           isForecast: false,
-        }));
-        (data.radar?.nowcast || []).forEach(f => radarFrames.push({
-          time: f.time,
-          path: f.path,
-          url: f.url,
-          maxNativeZoom: f.maxNativeZoom,
-          isForecast: true,
         }));
         (data.satellite?.infrared || []).forEach(f => satelliteFrames.push({
           time: f.time,
@@ -1076,7 +1068,7 @@ function renderWeather(data, city) {
   document.getElementById('cur-desc').textContent = w.desc;
   document.getElementById('cur-temp').textContent = tempDisplay(c.temperature_2m);
   document.querySelector('.deg').textContent = `°${tempUnit()}`;
-  document.querySelector('.feels').innerHTML = `${apparentLabel(c.temperature_2m, c.apparent_temperature)} <span id="cur-feels">${tempDisplay(c.apparent_temperature)}</span>°${tempUnit()}`;
+  document.getElementById('feels-line').innerHTML = `${apparentLabel(c.temperature_2m, c.apparent_temperature)} <span id="cur-feels">${tempDisplay(c.apparent_temperature)}</span>°${tempUnit()}`;
   document.getElementById('cur-hi').textContent = tempDisplay(d.temperature_2m_max[0]);
   document.getElementById('cur-lo').textContent = tempDisplay(d.temperature_2m_min[0]);
   document.getElementById('cur-precip').textContent = c.precipitation > 0 ? `${precipDisplay(c.precipitation)} ${state.units === 'us' ? 'in' : 'mm'} precip` : 'No precipitation';
@@ -1668,7 +1660,12 @@ searchInput.addEventListener('input', () => {
 
       results.forEach(r => {
         const li = document.createElement('li');
-        li.innerHTML = `${r.name}<span class="sug-country">${r.admin1 ? r.admin1 + ', ' : ''}${r.country || ''}</span>`;
+        const nameText = document.createTextNode(r.name);
+        const countrySpan = document.createElement('span');
+        countrySpan.className = 'sug-country';
+        countrySpan.textContent = `${r.admin1 ? r.admin1 + ', ' : ''}${r.country || ''}`;
+        li.appendChild(nameText);
+        li.appendChild(countrySpan);
         li.addEventListener('click', () => {
           searchInput.value = r.name;
           hide(suggestEl);

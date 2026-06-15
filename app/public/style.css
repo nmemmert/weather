@@ -19,6 +19,7 @@
   --surface-border: 1px solid rgba(255, 255, 255, 0.08);
   --surface-radius-lg: 16px;
   --surface-radius-md: 12px;
+  --surface-radius-sm: 8px;
   --surface-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
 }
 
@@ -338,6 +339,10 @@ a:hover { text-decoration: underline; }
   color: var(--ink-mid);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .tab:last-child { border-right: none; }
@@ -496,25 +501,6 @@ a:hover { text-decoration: underline; }
 
 .auto-detect-toggle input {
   accent-color: var(--accent);
-}
-
-.toggle-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin-bottom: 0.45rem;
-  font-size: 0.68rem;
-  color: var(--ink-mid);
-  cursor: pointer;
-  user-select: none;
-}
-
-.toggle-label input {
-  accent-color: var(--accent);
-}
-
-.toggle-label span {
-  min-width: 24px;
 }
 
 .saved-item {
@@ -1581,8 +1567,6 @@ details[open] .drawer-chevron { transform: rotate(90deg); }
   color: var(--accent);
 }
 
-.stat-label { font-size: 0.58rem; letter-spacing: 0.1em; color: var(--ink-light); text-transform: uppercase; margin-bottom: 0.3rem; }
-
 /* ── Section heads ── */
 .section-head {
   display: flex;
@@ -1813,12 +1797,6 @@ details[open] .drawer-chevron { transform: rotate(90deg); }
 }
 
 /* ── Touch-friendly tap targets (min 44 × 44 px) ── */
-.tab {
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 .search-row input,
 .search-row button { min-height: 44px; }
 .radar-btn { width: 44px; height: 44px; font-size: 0.8rem; }
