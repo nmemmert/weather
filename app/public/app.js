@@ -22,6 +22,257 @@ const WMO = {
 
 function wmo(code) { return WMO[code] || { desc: 'Unknown', icon: '🌡️' }; }
 
+function wmoGroup(code) {
+  if ([0,1].includes(code)) return 'clear';
+  if ([2,3,45,48].includes(code)) return 'cloud';
+  if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return 'rain';
+  if ([71,73,75,77,85,86].includes(code)) return 'snow';
+  if ([95,96,99].includes(code)) return 'storm';
+  return '';
+}
+
+function applyTheme(t) {
+  state.theme = t || 'system';
+  if (t === 'dark') document.documentElement.dataset.theme = 'dark';
+  else if (t === 'light') document.documentElement.dataset.theme = 'light';
+  else delete document.documentElement.dataset.theme;
+  localStorage.setItem(STORAGE_KEYS.theme, state.theme);
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.theme === state.theme);
+  });
+}
+
+function updateAlertBadge(count) {
+  ['alert-badge-nav', 'alert-badge-bottom'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (count > 0) { el.textContent = count > 9 ? '9+' : count; el.classList.remove('hidden'); }
+    else { el.classList.add('hidden'); }
+  });
+}
+
+function parseNhcCoord(str) {
+  if (typeof str === 'number') return str;
+  if (!str) return NaN;
+  const m = String(str).match(/^([\d.]+)([NSEW])$/i);
+  if (!m) return NaN;
+  const v = parseFloat(m[1]);
+  return (m[2].toUpperCase() === 'S' || m[2].toUpperCase() === 'W') ? -v : v;
+}
+
+function renderHurricanePanel(storms) {
+  const panel = document.getElementById('hurricane-panel');
+  if (!panel) return;
+  if (!storms || !storms.length) { panel.innerHTML = ''; return; }
+  const catLabel = c => {
+    if (!c) return '';
+    const up = c.toUpperCase();
+    if (up === 'HU') return 'cat-1';
+    if (up === 'TS') return 'cat-ts';
+    if (up === 'TD') return 'cat-td';
+    const m = c.match(/(\d)/);
+    if (m) return `cat-${m[1]}`;
+    return 'cat-td';
+  };
+  const catName = c => {
+    if (!c) return 'Tropical';
+    const up = c.toUpperCase();
+    if (up === 'HU') return 'Hurricane';
+    if (up === 'TS') return 'Tropical Storm';
+    if (up === 'TD') return 'Tropical Depression';
+    return c;
+  };
+  panel.innerHTML = storms.map(s => {
+    const lat = parseNhcCoord(s.latitude);
+    const lon = parseNhcCoord(s.longitude);
+    return `
+    <div class="hurricane-storm-card">
+      <div class="hurricane-header">
+        <span class="hurricane-name">${s.name || 'Storm'}</span>
+        <span class="hurricane-cat-badge ${catLabel(s.classification)}">${catName(s.classification)}</span>
+      </div>
+      <div class="hurricane-stats">
+        <span>Winds: ${s.intensity || '--'} mph</span>
+        ${s.pressure ? `<span>Pressure: ${s.pressure} mb</span>` : ''}
+        <span>${isNaN(lat) ? s.latitude : lat.toFixed(1)+'°'}, ${isNaN(lon) ? s.longitude : Math.abs(lon).toFixed(1)+'°'+(lon < 0 ? 'W' : 'E')}</span>
+        ${s.movement ? `<span>Moving ${s.movement}</span>` : ''}
+      </div>
+    </div>
+  `}).join('');
+}
+
+function renderPrecipChart(h, startIdx) {
+  const wrap = document.getElementById('precip-chart-wrap');
+  if (!wrap || !h?.precipitation_probability) return;
+  const hrs = Math.min(state.hourlyExtended ? 48 : 24, h.time.length - startIdx);
+  const vals = h.precipitation_probability.slice(startIdx, startIdx + hrs);
+  const maxV = Math.max(...vals, 10);
+  const W = Math.max(640, hrs * 20);
+  const H = 52;
+  const barW = Math.floor(W / hrs) - 1;
+  const bars = vals.map((v, i) => {
+    const bh = Math.round((v / maxV) * 36);
+    const x = i * (barW + 1);
+    const color = v >= 70 ? '#2c7bb6' : v >= 40 ? '#74add1' : '#abd9e9';
+    return `<rect x="${x}" y="${36 - bh}" width="${barW}" height="${bh}" fill="${color}" rx="2"/>
+      ${v > 0 ? `<text x="${x + barW / 2}" y="50" text-anchor="middle" font-size="8" fill="currentColor">${v}%</text>` : ''}`;
+  }).join('');
+  wrap.innerHTML = `<svg width="${W}" height="${H}" style="color:var(--ink-light)">${bars}</svg>`;
+}
+
+function urlBase64ToUint8Array(b64) {
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+async function subscribePush() {
+  const btn = document.getElementById('push-subscribe-btn');
+  const statusEl = document.getElementById('push-status');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    if (statusEl) { statusEl.textContent = 'Push not supported in this browser.'; show(statusEl); }
+    return;
+  }
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = 'Enabling…'; }
+    const keyRes = await fetch('/api/vapid-public-key');
+    const { publicKey } = await keyRes.json();
+    const reg = await navigator.serviceWorker.ready;
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new Error('Permission denied');
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+    const city = state.currentCity;
+    await fetch('/api/push-subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription: sub.toJSON(),
+        lat: city?.latitude, lon: city?.longitude,
+        ntfyTopic: state.ntfyTopic,
+        thresholds: state.alertThresholds,
+        digestHour: state.digestHour,
+      }),
+    });
+    state.pushSub = sub;
+    if (btn) { btn.textContent = 'Disable'; btn.disabled = false; }
+    if (statusEl) { statusEl.textContent = '✓ Push alerts enabled!'; show(statusEl); }
+  } catch (e) {
+    if (btn) { btn.textContent = 'Enable'; btn.disabled = false; }
+    if (statusEl) { statusEl.textContent = `✗ ${e.message}`; show(statusEl); }
+  }
+}
+
+async function renderHurricaneOverlay(map) {
+  if (!map || !map.loaded()) return;
+  ['hurricane-overlay'].forEach(id => {
+    if (map.getLayer(id)) map.removeLayer(id);
+    if (map.getSource(id)) map.removeSource(id);
+  });
+  if (!state.unifiedMapLayers.hurricane) return;
+  try {
+    const data = await fetch('/api/hurricanes').then(r => r.json());
+    const storms = data.storms || [];
+    if (!storms.length) return;
+    const features = storms.map(s => {
+      const lat = parseNhcCoord(s.latitude);
+      const lon = parseNhcCoord(s.longitude);
+      if (isNaN(lat) || isNaN(lon)) return null;
+      const cat = (s.classification || '').toUpperCase();
+      return {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [lon, lat] },
+        properties: { name: s.name || 'Storm', cat, intensity: s.intensity || '--' },
+      };
+    }).filter(Boolean);
+    map.addSource('hurricane-overlay', { type: 'geojson', data: { type: 'FeatureCollection', features } });
+    map.addLayer({
+      id: 'hurricane-overlay', type: 'circle', source: 'hurricane-overlay',
+      paint: {
+        'circle-radius': 14,
+        'circle-color': ['match', ['get', 'cat'], 'HU', '#f44336', 'TS', '#9c27b0', '#2196f3'],
+        'circle-opacity': 0.55,
+        'circle-stroke-width': 2.5,
+        'circle-stroke-color': ['match', ['get', 'cat'], 'HU', '#f44336', 'TS', '#9c27b0', '#2196f3'],
+      },
+    });
+    map.on('click', 'hurricane-overlay', e => {
+      const p = e.features[0].properties;
+      const label = p.cat === 'HU' ? 'Hurricane' : p.cat === 'TS' ? 'Tropical Storm' : 'Tropical Depression';
+      new maplibregl.Popup().setLngLat(e.lngLat)
+        .setHTML(`<b>${p.name}</b><br>${label}<br>Winds: ${p.intensity} mph`).addTo(map);
+    });
+    map.on('mouseenter', 'hurricane-overlay', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'hurricane-overlay', () => { map.getCanvas().style.cursor = ''; });
+  } catch {}
+}
+
+async function renderWildfireOverlay(map) {
+  if (!map || !map.loaded()) return;
+  ['wildfire-fill', 'wildfire-outline'].forEach(id => {
+    if (map.getLayer(id)) map.removeLayer(id);
+  });
+  if (map.getSource('wildfire-overlay')) map.removeSource('wildfire-overlay');
+  if (!state.unifiedMapLayers.wildfire) return;
+  try {
+    const data = await fetch('/api/wildfires').then(r => r.json());
+    if (data?.type !== 'FeatureCollection' || !Array.isArray(data.features)) return;
+    map.addSource('wildfire-overlay', { type: 'geojson', data });
+    map.addLayer({ id: 'wildfire-fill', type: 'fill', source: 'wildfire-overlay',
+      paint: { 'fill-color': '#ff6d00', 'fill-opacity': 0.25 } });
+    map.addLayer({ id: 'wildfire-outline', type: 'line', source: 'wildfire-overlay',
+      paint: { 'line-color': '#ff6d00', 'line-width': 1.5 } });
+    map.on('click', 'wildfire-fill', e => {
+      const p = e.features[0].properties || {};
+      new maplibregl.Popup().setLngLat(e.lngLat)
+        .setHTML(`<b>${p.IncidentName || 'Wildfire'}</b><br>${Math.round(p.GISAcres || 0).toLocaleString()} acres<br>${p.PercentContained ?? '--'}% contained`).addTo(map);
+    });
+    map.on('mouseenter', 'wildfire-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'wildfire-fill', () => { map.getCanvas().style.cursor = ''; });
+  } catch {}
+}
+
+async function renderSPCOverlay(map) {
+  if (!map || !map.loaded()) return;
+  ['spc-overlay'].forEach(id => {
+    if (map.getLayer(id)) map.removeLayer(id);
+    if (map.getSource(id)) map.removeSource(id);
+  });
+  if (!state.unifiedMapLayers.spc) return;
+  try {
+    const data = await fetch('/api/spc/reports').then(r => r.json());
+    map.addSource('spc-overlay', { type: 'geojson', data });
+    map.addLayer({
+      id: 'spc-overlay', type: 'circle', source: 'spc-overlay',
+      paint: {
+        'circle-radius': 6,
+        'circle-color': ['match', ['get', 'type'], 'torn', '#e53935', 'wind', '#fb8c00', '#43a047'],
+        'circle-opacity': 0.7,
+        'circle-stroke-width': 1.5,
+        'circle-stroke-color': ['match', ['get', 'type'], 'torn', '#e53935', 'wind', '#fb8c00', '#43a047'],
+      },
+    });
+    map.on('click', 'spc-overlay', e => {
+      const p = e.features[0].properties;
+      const label = p.type === 'torn' ? 'Tornado' : p.type === 'wind' ? 'Wind damage' : 'Hail';
+      new maplibregl.Popup().setLngLat(e.lngLat)
+        .setHTML(`<b>${label}</b><br>${p.location}<br>${p.comments}`).addTo(map);
+    });
+    map.on('mouseenter', 'spc-overlay', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'spc-overlay', () => { map.getCanvas().style.cursor = ''; });
+  } catch {}
+}
+
+async function refreshSavedCityWeather() {
+  for (const city of state.savedCities) {
+    const key = cityKey(city);
+    try {
+      const res = await fetch(`/api/weather?lat=${city.latitude}&lon=${city.longitude}`);
+      if (res.ok) state.savedCityWeather[key] = await res.json();
+    } catch {}
+  }
+  renderSavedCities();
+}
+
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const STORAGE_KEYS = {
@@ -29,6 +280,7 @@ const STORAGE_KEYS = {
   savedCities: 'weather.savedCities',
   units: 'weather.units',
   autoDetect: 'weather.autoDetect',
+  ntfyTopic: 'weather.ntfyTopic',
   showLightning: 'weather.showLightning',
   showWind: 'weather.showWind',
   showRadarLayer: 'weather.map.radar',
@@ -39,13 +291,21 @@ const STORAGE_KEYS = {
   showAlertsLayer: 'weather.map.alerts',
   showTempMarker: 'weather.map.temp',
   showSunMoonMarkers: 'weather.map.sunMoon',
+  showHurricaneLayer: 'weather.map.hurricane',
+  showWildfireLayer: 'weather.map.wildfire',
+  showSpcLayer: 'weather.map.spc',
   unifiedMapBaseLayer: 'weather.map.baseLayer',
   unifiedMapRadarMode: 'weather.map.radarMode',
+  theme: 'weather.theme',
+  alertThresholds: 'weather.alertThresholds',
+  digestHour: 'weather.digestHour',
+  pwsUrl: 'weather.pwsUrl',
 };
 
 const state = {
   units: localStorage.getItem(STORAGE_KEYS.units) || 'us',
   autoDetect: localStorage.getItem(STORAGE_KEYS.autoDetect) !== 'false',
+  ntfyTopic: localStorage.getItem(STORAGE_KEYS.ntfyTopic) || '',
   showLightning: localStorage.getItem(STORAGE_KEYS.showLightning) !== 'false',
   showWind: localStorage.getItem(STORAGE_KEYS.showWind) !== 'false',
   currentCity: null,
@@ -73,9 +333,20 @@ const state = {
     alerts: localStorage.getItem(STORAGE_KEYS.showAlertsLayer) !== 'false',
     temp: localStorage.getItem(STORAGE_KEYS.showTempMarker) !== 'false',
     sunMoon: localStorage.getItem(STORAGE_KEYS.showSunMoonMarkers) !== 'false',
+    hurricane: localStorage.getItem(STORAGE_KEYS.showHurricaneLayer) === 'true',
+    wildfire: localStorage.getItem(STORAGE_KEYS.showWildfireLayer) === 'true',
+    spc: localStorage.getItem(STORAGE_KEYS.showSpcLayer) === 'true',
   },
   unifiedMapBaseLayer: localStorage.getItem(STORAGE_KEYS.unifiedMapBaseLayer) || 'dark',
   unifiedMapRadarMode: localStorage.getItem(STORAGE_KEYS.unifiedMapRadarMode) || 'radar',
+  theme: localStorage.getItem(STORAGE_KEYS.theme) || 'system',
+  alertThresholds: JSON.parse(localStorage.getItem(STORAGE_KEYS.alertThresholds) || '{}'),
+  digestHour: Number(localStorage.getItem(STORAGE_KEYS.digestHour) ?? 7),
+  pwsUrl: localStorage.getItem(STORAGE_KEYS.pwsUrl) || '',
+  pushSub: null,
+  hourlyExtended: false,
+  hourlyFeelsLike: false,
+  savedCityWeather: {},
 };
 
 // ── DOM ──────────────────────────────────────────────────────────────────────
@@ -318,31 +589,48 @@ function renderSavedCities() {
     return;
   }
 
-  state.savedCities.forEach(city => {
-    const wrap = document.createElement('div');
-    wrap.className = 'saved-item';
+  const container = document.createElement('div');
+  container.className = 'saved-cards';
 
-    const chip = document.createElement('button');
-    chip.className = 'saved-chip';
-    chip.type = 'button';
-    chip.textContent = city.name;
-    chip.addEventListener('click', () => loadAll(city, 'saved-location'));
+  state.savedCities.forEach(city => {
+    const key = cityKey(city);
+    const wx = state.savedCityWeather[key];
+    const card = document.createElement('div');
+    card.className = 'saved-mini-card';
+    card.title = city.name;
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'mini-city-name';
+    nameEl.textContent = city.name;
+
+    const wxRow = document.createElement('div');
+    wxRow.className = 'mini-weather-row';
+    if (wx?.current) {
+      const w = wmo(wx.current.weather_code);
+      wxRow.innerHTML = `<span>${w.icon}</span><span>${tempDisplay(wx.current.temperature_2m)}°${tempUnit()}</span>`;
+    } else {
+      wxRow.textContent = '—';
+    }
 
     const remove = document.createElement('button');
-    remove.className = 'saved-remove';
+    remove.className = 'mini-remove';
     remove.type = 'button';
-    remove.textContent = 'x';
-    remove.addEventListener('click', (e) => {
+    remove.textContent = '×';
+    remove.addEventListener('click', e => {
       e.stopPropagation();
-      state.savedCities = state.savedCities.filter(c => cityKey(c) !== cityKey(city));
+      state.savedCities = state.savedCities.filter(c => cityKey(c) !== key);
       persistSavedCities();
       renderSavedCities();
     });
 
-    wrap.appendChild(chip);
-    wrap.appendChild(remove);
-    savedLocationsEl.appendChild(wrap);
+    card.addEventListener('click', () => loadAll(city, 'saved-location'));
+    card.appendChild(nameEl);
+    card.appendChild(wxRow);
+    card.appendChild(remove);
+    container.appendChild(card);
   });
+
+  savedLocationsEl.appendChild(container);
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -365,6 +653,9 @@ function activateTab(tabName) {
       if (unifiedMap && unifiedMap.refresh) unifiedMap.refresh();
       refreshMapsOverview();
     }, 340);
+  }
+  if (tabName === 'settings') {
+    refreshSavedCityWeather();
   }
 }
 document.querySelectorAll('.tab, .bottom-tab').forEach(btn => {
@@ -469,35 +760,56 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
   const FRAME_INTERVAL_MS = 650;
   const FRAME_FADE_MS = 240;
 
-  const map = L.map(mapEl, {
-    center: [39.5, -98.35],
+  const baseMapType = mapEl?.id === 'unified-map' ? state.unifiedMapBaseLayer : 'dark';
+
+  function buildStyle(type) {
+    const tileUrl = type === 'light'
+      ? 'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'
+      : type === 'satellite'
+        ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+        : 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png';
+    return {
+      version: 8,
+      sources: {
+        base: { type: 'raster', tiles: [tileUrl], tileSize: 256,
+          attribution: '© OpenStreetMap contributors, © CARTO' }
+      },
+      layers: [{ id: 'base', type: 'raster', source: 'base' }],
+    };
+  }
+
+  const map = new maplibregl.Map({
+    container: mapEl,
+    style: buildStyle(baseMapType),
+    center: [-98.35, 39.5],
     zoom: 4,
-    zoomControl: true,
     attributionControl: false,
   });
-
-  const baseMapType = mapEl?.id === 'unified-map' ? state.unifiedMapBaseLayer : 'dark';
-  const baseMapUrl = baseMapType === 'light'
-    ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
-    : baseMapType === 'satellite'
-      ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-      : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-
-  L.tileLayer(baseMapUrl, {
-    maxZoom: baseMapType === 'satellite' ? 18 : 19,
-  }).addTo(map);
 
   let radarFrames = [];
   let satelliteFrames = [];
   let mode = 'radar';
   let currentIdx = 0;
-  let layers = { radar: {}, satellite: {} };
+  let layers = { radar: {}, satellite: {} }; // frame.time -> layerId string
   let playing = false;
   let animTimer = null;
   let locationMarker = null;
-  let visibleLayer = null;
+  let visibleLayerId = null;
   let framesReady = false;
   let loadingFrames = false;
+  let mapReady = false;
+  const pendingOps = [];
+
+  map.once('load', () => {
+    mapReady = true;
+    pendingOps.forEach(fn => fn());
+    pendingOps.length = 0;
+  });
+
+  function whenReady(fn) {
+    if (mapReady) fn();
+    else pendingOps.push(fn);
+  }
 
   function activeFrames() {
     return mode === 'radar' ? radarFrames : satelliteFrames;
@@ -509,12 +821,30 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
       ' ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
   }
 
-  function frameTileUrl(frame) {
+  function frameTileUrl(frame, forMode) {
     if (frame?.url) return frame.url;
-    if (mode === 'satellite') {
+    const m = forMode !== undefined ? forMode : mode;
+    if (m === 'satellite') {
       return `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/0/0_0.png`;
     }
     return `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+  }
+
+  function addFrameLayer(frame, forMode) {
+    const id = `rv-${forMode}-${frame.time}`;
+    if (!map.getSource(id)) {
+      map.addSource(id, { type: 'raster', tiles: [frameTileUrl(frame, forMode)], tileSize: 256 });
+      map.addLayer({
+        id, type: 'raster', source: id,
+        paint: {
+          'raster-opacity': 0,
+          'raster-opacity-transition': { duration: FRAME_FADE_MS, delay: 0 },
+          'raster-fade-duration': 0,
+        },
+      });
+      layers[forMode][frame.time] = id;
+    }
+    return id;
   }
 
   function showFrame(idx) {
@@ -523,41 +853,18 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
     const frame = frames[idx];
     if (!frame) return;
 
-    if (!layers[mode][frame.time]) {
-      const opts = {
-        opacity: 0,
-        maxZoom: 19,
-      };
-      if (frame?.maxNativeZoom != null) opts.maxNativeZoom = frame.maxNativeZoom;
-      layers[mode][frame.time] = L.tileLayer(frameTileUrl(frame), opts);
-    }
+    whenReady(() => {
+      const layerId = layers[mode][frame.time] || addFrameLayer(frame, mode);
 
-    Object.values(layers.radar).forEach(l => {
-      if (l !== visibleLayer && map.hasLayer(l)) map.removeLayer(l);
-    });
-    Object.values(layers.satellite).forEach(l => {
-      if (l !== visibleLayer && map.hasLayer(l)) map.removeLayer(l);
+      if (visibleLayerId && visibleLayerId !== layerId && map.getLayer(visibleLayerId)) {
+        map.setPaintProperty(visibleLayerId, 'raster-opacity', 0);
+      }
+
+      map.setPaintProperty(layerId, 'raster-opacity', 0.78);
+      visibleLayerId = layerId;
     });
 
-    const nextLayer = layers[mode][frame.time];
-    if (!map.hasLayer(nextLayer)) {
-      nextLayer.setOpacity(0);
-      nextLayer.addTo(map);
-    }
-
-    nextLayer.setOpacity(0.78);
-
-    if (visibleLayer && visibleLayer !== nextLayer && map.hasLayer(visibleLayer)) {
-      visibleLayer.setOpacity(0.2);
-      const prevLayer = visibleLayer;
-      setTimeout(() => {
-        if (prevLayer !== visibleLayer && map.hasLayer(prevLayer)) map.removeLayer(prevLayer);
-      }, FRAME_FADE_MS);
-    }
-
-    visibleLayer = nextLayer;
-
-    tsEl.textContent = tsLabel(frame.time);
+    if (tsEl) tsEl.textContent = tsLabel(frame.time);
     document.querySelectorAll(`#${timelineEl.id} .tl-tick`).forEach((el, i) => {
       el.classList.toggle('active', i === idx);
     });
@@ -604,7 +911,7 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
       if (!(radarFrames.length && satelliteFrames.length)) return;
       mode = mode === 'radar' ? 'satellite' : 'radar';
       layerBtn.textContent = mode === 'radar' ? 'R' : 'S';
-      visibleLayer = null;
+      visibleLayerId = null;
       buildTimeline();
       const idx = Math.min(currentIdx, activeFrames().length - 1);
       showFrame(Math.max(idx, 0));
@@ -622,10 +929,10 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 20000);
-        
+
         const r = await fetch('/api/radar/times', { signal: controller.signal });
         clearTimeout(timeoutId);
-        
+
         if (!r.ok) {
           throw new Error(`Radar fetch returned ${r.status}`);
         }
@@ -634,18 +941,12 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
         radarFrames = [];
         satelliteFrames = [];
         (data.radar?.past || []).forEach(f => radarFrames.push({
-          time: f.time,
-          path: f.path,
-          url: f.url,
-          maxNativeZoom: f.maxNativeZoom,
-          isForecast: false,
+          time: f.time, path: f.path, url: f.url,
+          maxNativeZoom: f.maxNativeZoom, isForecast: false,
         }));
         (data.satellite?.infrared || []).forEach(f => satelliteFrames.push({
-          time: f.time,
-          path: f.path,
-          url: f.url,
-          maxNativeZoom: f.maxNativeZoom,
-          isForecast: false,
+          time: f.time, path: f.path, url: f.url,
+          maxNativeZoom: f.maxNativeZoom, isForecast: false,
         }));
 
         if (!radarFrames.length && satelliteFrames.length) mode = 'satellite';
@@ -659,6 +960,12 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
           layerBtn.textContent = mode === 'radar' ? 'R' : 'S';
         }
 
+        // Pre-add all frame layers so tiles begin fetching before animation starts
+        whenReady(() => {
+          radarFrames.forEach(f => addFrameLayer(f, 'radar'));
+          satelliteFrames.forEach(f => addFrameLayer(f, 'satellite'));
+        });
+
         buildTimeline();
         const frames = activeFrames();
         showFrame(Math.max(frames.length - 1, 0));
@@ -671,12 +978,12 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
         } else {
           console.error(`Radar load attempt ${retries} failed:`, e.message);
         }
-        
+
         if (retries >= maxRetries) {
           console.error('Radar load failed after', maxRetries, 'attempts');
           return;
         }
-        
+
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
@@ -686,15 +993,13 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
   }
 
   function panTo(lat, lon, zoom) {
-    map.setView([lat, lon], zoom || map.getZoom());
-    if (locationMarker) map.removeLayer(locationMarker);
-    locationMarker = L.circleMarker([lat, lon], {
-      radius: 6,
-      fillColor: '#e07848',
-      fillOpacity: 1,
-      color: '#fff',
-      weight: 2,
-    }).addTo(map);
+    map.flyTo({ center: [lon, lat], zoom: zoom || map.getZoom(), duration: 600 });
+    if (locationMarker) { locationMarker.remove(); locationMarker = null; }
+    const el = document.createElement('div');
+    el.className = 'map-location-dot';
+    locationMarker = new maplibregl.Marker({ element: el })
+      .setLngLat([lon, lat])
+      .addTo(map);
   }
 
   function isMapVisible() {
@@ -703,14 +1008,26 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
 
   function refresh() {
     if (!isMapVisible()) return;
-    map.invalidateSize();
+    map.resize();
     loadFrames();
   }
 
-  // Wait for visibility before first load to avoid zero-size Leaflet rendering.
+  function setRadarVisible(visible) {
+    Object.values(layers.radar).forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+    });
+  }
+
+  function setSatVisible(visible) {
+    Object.values(layers.satellite).forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+    });
+  }
+
+  // Wait for visibility before first load to avoid zero-size MapLibre rendering.
   setTimeout(() => {
     let tries = 0;
-    const maxTries = 40; // ~10 seconds at 250ms interval
+    const maxTries = 40;
     const timer = setInterval(() => {
       tries++;
       if (isMapVisible()) {
@@ -722,7 +1039,7 @@ function createRadar(mapEl, timelineEl, playBtn, tsEl, layerBtn) {
     }, 250);
   }, 100);
 
-  return { map, panTo, startPlay, stopPlay, refresh };
+  return { map, panTo, startPlay, stopPlay, refresh, setRadarVisible, setSatVisible };
 }
 
 const radarEmbedEl = document.getElementById('radar-embed');
@@ -748,50 +1065,53 @@ const radarFull = radarFullEl
   : { map: null, panTo: () => {}, startPlay: () => {}, stopPlay: () => {}, refresh: () => {} };
 
 function createOverviewMap(mapEl) {
-  const map = L.map(mapEl, {
-    center: [39.5, -98.35],
+  const map = new maplibregl.Map({
+    container: mapEl,
+    style: {
+      version: 8,
+      sources: { base: { type: 'raster',
+        tiles: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256, attribution: '© OpenStreetMap' } },
+      layers: [{ id: 'base', type: 'raster', source: 'base' }],
+    },
+    center: [-98.35, 39.5],
     zoom: 4,
-    zoomControl: true,
     attributionControl: false,
   });
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-  }).addTo(map);
 
   let marker = null;
 
   function panTo(lat, lon, zoom) {
-    map.setView([lat, lon], zoom || map.getZoom());
-    if (marker) map.removeLayer(marker);
-    marker = L.circleMarker([lat, lon], {
-      radius: 7,
-      fillColor: '#e07848',
-      fillOpacity: 1,
-      color: '#fff',
-      weight: 2,
-    }).addTo(map);
+    map.flyTo({ center: [lon, lat], zoom: zoom || map.getZoom(), duration: 600 });
+    if (marker) { marker.remove(); marker = null; }
+    const el = document.createElement('div');
+    el.className = 'map-location-dot';
+    marker = new maplibregl.Marker({ element: el })
+      .setLngLat([lon, lat])
+      .addTo(map);
   }
 
   return { map, panTo };
 }
 
 function clearLightningMarkers() {
-  if (!mapsOverview.map) return;
-  state.lightningMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
+  state.lightningMarkers.forEach(m => m.remove());
   state.lightningMarkers = [];
 }
 
 function clearWindArrows() {
   if (!mapsOverview.map) return;
-  state.windArrows.forEach(arrow => mapsOverview.map.removeLayer(arrow));
+  ['wind-arrows'].forEach(id => {
+    if (mapsOverview.map.getLayer(id)) mapsOverview.map.removeLayer(id);
+    if (mapsOverview.map.getSource(id)) mapsOverview.map.removeSource(id);
+  });
   state.windArrows = [];
 }
 
 function refreshMapsOverview() {
   if (!mapsOverview.map) return;
 
-  mapsOverview.map.invalidateSize();
+  mapsOverview.map.resize();
 
   if (!state.currentCity) return;
 
@@ -811,6 +1131,9 @@ function refreshMapsOverview() {
   renderAlertMarker(state.currentCity);
   renderTempMarker(state.currentCity);
   renderSunMoonMarker(state.currentCity);
+  renderHurricaneOverlay(mapsOverview.map);
+  renderWildfireOverlay(mapsOverview.map);
+  renderSPCOverlay(mapsOverview.map);
 }
 
 function renderLightningStrikes(city) {
@@ -823,102 +1146,84 @@ function renderLightningStrikes(city) {
 function renderWindArrows(city) {
   if (!mapsOverview.map || !state.showWind || !state.currentWeather) return;
   clearWindArrows();
-  
-  // Get current wind data
+
   const current = state.currentWeather.current;
   if (!current || current.wind_speed_10m == null) return;
-  
+
   const windSpeed = current.wind_speed_10m;
   const windGust = current.wind_gusts_10m || 0;
   const windDir = current.wind_direction_10m || 0;
-  
-  // Update wind data display
+
   const windSpeedEl = document.getElementById('wind-speed');
   const windGustEl = document.getElementById('wind-gust');
   const windDirectionEl = document.getElementById('wind-direction');
   if (windSpeedEl) windSpeedEl.textContent = `${speedDisplay(windSpeed)} ${speedUnit()}`;
   if (windGustEl) windGustEl.textContent = windGust > 0 ? `${speedDisplay(windGust)} ${speedUnit()}` : '--';
   if (windDirectionEl) windDirectionEl.textContent = compassDirFull(windDir);
-  
-  // Draw a denser set of arrows around the city center for richer wind context.
+
   const lat = parseFloat(city.latitude);
   const lon = parseFloat(city.longitude);
-  const arrowCount = Math.max(3, Math.min(9, Math.ceil(windSpeed / 3))); // 3-9 arrows
+  const arrowCount = Math.max(3, Math.min(9, Math.ceil(windSpeed / 3)));
   const baseRadius = 0.12;
+  const color = windSpeed > 20 ? '#ff3333' : windSpeed > 10 ? '#ffaa00' : '#4a90e2';
+  const features = [];
 
   for (let i = 0; i < arrowCount; i++) {
     const bandPos = i - (arrowCount - 1) / 2;
     const offsetLat = lat + (bandPos * 0.045);
     const offsetLon = lon + (Math.abs(bandPos) % 2 ? 0.025 : -0.025);
-    
-    // Calculate arrow end point based on wind direction
     const radians = (windDir * Math.PI) / 180;
     const arrowLength = baseRadius + (Math.abs(bandPos) * 0.028) + Math.min(windSpeed / 120, 0.08);
     const endLat = offsetLat + arrowLength * Math.cos(radians);
     const endLon = offsetLon + arrowLength * Math.sin(radians);
-    
-    // Draw arrow line with gradient color based on wind speed
-    const color = windSpeed > 20 ? '#ff3333' : windSpeed > 10 ? '#ffaa00' : '#4a90e2';
-    const weight = 2.5 + (i % 2);
-    
-    const arrow = L.polyline(
-      [[offsetLat, offsetLon], [endLat, endLon]],
-      {
-        color: color,
-        weight: weight,
-        opacity: 1.0,
-        smooth: true,
-      }
-    ).bindPopup(
-      `💨 Wind: ${speedDisplay(windSpeed)} ${speedUnit()}<br>Gust: ${windGust > 0 ? `${speedDisplay(windGust)} ${speedUnit()}` : '--'}<br>Direction: ${compassDirFull(windDir)} (${Math.round(windDir)}°)`
-    );
-    
-    arrow.addTo(mapsOverview.map);
-    state.windArrows.push(arrow);
-    
-    // Draw arrow head
+
+    features.push({ type: 'Feature', geometry: { type: 'LineString',
+      coordinates: [[offsetLon, offsetLat], [endLon, endLat]] }, properties: {} });
+
     const headSize = 0.05;
-    const arrowHeadLat1 = endLat - headSize * Math.cos(radians + Math.PI * 0.15);
-    const arrowHeadLon1 = endLon - headSize * Math.sin(radians + Math.PI * 0.15);
-    const arrowHeadLat2 = endLat - headSize * Math.cos(radians - Math.PI * 0.15);
-    const arrowHeadLon2 = endLon - headSize * Math.sin(radians - Math.PI * 0.15);
-    
-    const arrowHead = L.polyline(
-      [[arrowHeadLat1, arrowHeadLon1], [endLat, endLon], [arrowHeadLat2, arrowHeadLon2]],
-      {
-        color: color,
-        weight: weight,
-        opacity: 1.0,
-      }
-    );
-    
-    arrowHead.addTo(mapsOverview.map);
-    state.windArrows.push(arrowHead);
+    features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: [
+      [endLon - headSize * Math.sin(radians + Math.PI * 0.15), endLat - headSize * Math.cos(radians + Math.PI * 0.15)],
+      [endLon, endLat],
+      [endLon - headSize * Math.sin(radians - Math.PI * 0.15), endLat - headSize * Math.cos(radians - Math.PI * 0.15)],
+    ]}, properties: {} });
   }
+
+  const map = mapsOverview.map;
+  if (!map.loaded()) return;
+  map.addSource('wind-arrows', { type: 'geojson', data: { type: 'FeatureCollection', features } });
+  map.addLayer({
+    id: 'wind-arrows', type: 'line', source: 'wind-arrows',
+    paint: { 'line-color': color, 'line-width': 2.5, 'line-opacity': 1.0 },
+  });
 }
 
 function clearAqiMarkers() {
-  if (!mapsOverview.map) return;
-  state.aqiMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
+  state.aqiMarkers.forEach(m => m.remove());
   state.aqiMarkers = [];
 }
 
 function clearAlertMarkers() {
-  if (!mapsOverview.map) return;
-  state.alertMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
+  state.alertMarkers.forEach(m => m.remove());
   state.alertMarkers = [];
 }
 
 function clearSunMoonMarkers() {
-  if (!mapsOverview.map) return;
-  state.sunMoonMarkers.forEach(marker => mapsOverview.map.removeLayer(marker));
+  state.sunMoonMarkers.forEach(m => m.remove());
   state.sunMoonMarkers = [];
 }
 
 function clearTempMarker() {
-  if (!mapsOverview.map || !state.tempMarker) return;
-  mapsOverview.map.removeLayer(state.tempMarker);
-  state.tempMarker = null;
+  if (state.tempMarker) { state.tempMarker.remove(); state.tempMarker = null; }
+}
+
+function makeLabeledMarker(lon, lat, dotColor, labelHtml, popupHtml) {
+  const el = document.createElement('div');
+  el.className = 'map-labeled-marker';
+  el.innerHTML = `<div class="map-dot" style="background:${dotColor}"></div><span class="map-dot-label">${labelHtml}</span>`;
+  const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(popupHtml);
+  return new maplibregl.Marker({ element: el, anchor: 'left' })
+    .setLngLat([lon, lat])
+    .setPopup(popup);
 }
 
 function renderAqiMarker(city) {
@@ -927,22 +1232,9 @@ function renderAqiMarker(city) {
   const aqi = state.currentAir.current.us_aqi;
   if (aqi == null) return;
   const color = aqi > 150 ? '#d32f2f' : aqi > 100 ? '#f57c00' : aqi > 50 ? '#fbc02d' : '#388e3c';
-  const aqiLat = Number(city.latitude) - 0.045;
   const aqiLon = Number(city.longitude) - 0.06;
-  const marker = L.circleMarker([aqiLat, aqiLon], {
-    radius: 9,
-    fillColor: color,
-    fillOpacity: 0.85,
-    color: '#fff',
-    weight: 2,
-  }).bindPopup(`AQI ${aqi}`);
-  marker.bindTooltip(`AQI ${aqi}`, {
-    permanent: true,
-    direction: 'left',
-    offset: [-10, 0],
-    className: 'map-label map-label-aqi',
-    opacity: 0.95,
-  });
+  const aqiLat = Number(city.latitude) - 0.045;
+  const marker = makeLabeledMarker(aqiLon, aqiLat, color, `AQI ${aqi}`, `AQI ${aqi}`);
   marker.addTo(mapsOverview.map);
   state.aqiMarkers.push(marker);
 }
@@ -950,13 +1242,11 @@ function renderAqiMarker(city) {
 function renderAlertMarker(city) {
   if (!mapsOverview.map || !state.unifiedMapLayers.alerts || !state.currentAlerts?.features?.length) return;
   clearAlertMarkers();
-  const marker = L.circleMarker([city.latitude, city.longitude], {
-    radius: 10,
-    fillColor: '#d32f2f',
-    fillOpacity: 0.8,
-    color: '#fff',
-    weight: 2,
-  }).bindPopup(`${state.currentAlerts.features.length} active alert(s)`);
+  const count = state.currentAlerts.features.length;
+  const marker = makeLabeledMarker(
+    Number(city.longitude), Number(city.latitude),
+    '#d32f2f', `⚠ ${count}`, `${count} active alert(s)`
+  );
   marker.addTo(mapsOverview.map);
   state.alertMarkers.push(marker);
 }
@@ -965,22 +1255,11 @@ function renderTempMarker(city) {
   if (!mapsOverview.map || !state.unifiedMapLayers.temp || !state.currentWeather?.current) return;
   clearTempMarker();
   const temp = tempDisplay(state.currentWeather.current.temperature_2m);
-  const tempLat = Number(city.latitude) + 0.05;
-  const tempLon = Number(city.longitude) - 0.055;
-  const marker = L.circleMarker([tempLat, tempLon], {
-    radius: 11,
-    fillColor: '#1e88e5',
-    fillOpacity: 0.9,
-    color: '#fff',
-    weight: 2,
-  }).bindPopup(`${temp}°${tempUnit()}`);
-  marker.bindTooltip(`${temp}°${tempUnit()}`, {
-    permanent: true,
-    direction: 'right',
-    offset: [10, 0],
-    className: 'map-label map-label-temp',
-    opacity: 0.95,
-  });
+  const label = `${temp}°${tempUnit()}`;
+  const marker = makeLabeledMarker(
+    Number(city.longitude) - 0.055, Number(city.latitude) + 0.05,
+    '#1e88e5', label, label
+  );
   marker.addTo(mapsOverview.map);
   state.tempMarker = marker;
 }
@@ -991,22 +1270,10 @@ function renderSunMoonMarker(city) {
   const daily = state.currentWeather.daily;
   const sunrise = formatClock(daily.sunrise?.[0]);
   const sunset = formatClock(daily.sunset?.[0]);
-  const smLat = Number(city.latitude) + 0.05;
-  const smLon = Number(city.longitude) + 0.06;
-  const marker = L.circleMarker([smLat, smLon], {
-    radius: 8,
-    fillColor: '#fbc02d',
-    fillOpacity: 0.8,
-    color: '#fff',
-    weight: 2,
-  }).bindPopup(`Sunrise: ${sunrise}<br>Sunset: ${sunset}`);
-  marker.bindTooltip(`☀ ${sunrise} • 🌙 ${sunset}`, {
-    permanent: true,
-    direction: 'top',
-    offset: [0, -10],
-    className: 'map-label map-label-sunmoon',
-    opacity: 0.95,
-  });
+  const marker = makeLabeledMarker(
+    Number(city.longitude) + 0.06, Number(city.latitude) + 0.05,
+    '#fbc02d', `☀ ${sunrise}`, `Sunrise: ${sunrise}<br>Sunset: ${sunset}`
+  );
   marker.addTo(mapsOverview.map);
   state.sunMoonMarkers.push(marker);
 }
@@ -1059,12 +1326,13 @@ function renderWeather(data, city) {
   document.getElementById('loc-sub').textContent = [city.admin1, city.country].filter(Boolean).join(', ');
 
   const now = new Date();
-  document.getElementById('loc-time').innerHTML =
-    `${DAYS[now.getDay()]}, ${MONTHS[now.getMonth()]} ${now.getDate()}<br>` +
-    now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('loc-time').textContent =
+    `${DAYS[now.getDay()]}, ${MONTHS[now.getMonth()]} ${now.getDate()} · ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 
   const w = wmo(c.weather_code);
-  document.getElementById('cur-icon').textContent = w.icon;
+  const iconEl = document.getElementById('cur-icon');
+  iconEl.textContent = w.icon;
+  iconEl.dataset.wmoGroup = wmoGroup(c.weather_code);
   document.getElementById('cur-desc').textContent = w.desc;
   document.getElementById('cur-temp').textContent = tempDisplay(c.temperature_2m);
   document.querySelector('.deg').textContent = `°${tempUnit()}`;
@@ -1076,6 +1344,8 @@ function renderWeather(data, city) {
   document.getElementById('hum-feel').textContent = humidityFeel(c.relative_humidity_2m);
   document.getElementById('cur-wind').textContent = speedDisplay(c.wind_speed_10m);
   document.getElementById('cur-wind-dir').textContent = compassDirFull(c.wind_direction_10m);
+  const peekEl = document.getElementById('wind-drawer-peek');
+  if (peekEl) peekEl.textContent = `· ${speedDisplay(c.wind_speed_10m)} ${speedUnit()} ${compassDir(c.wind_direction_10m)} · ${c.relative_humidity_2m}% humidity`;
   document.getElementById('cur-gust').textContent = c.wind_gusts_10m != null ? speedDisplay(c.wind_gusts_10m) : '—';
   document.getElementById('cur-dew').textContent = calcDewpoint(c.temperature_2m, c.relative_humidity_2m);
   document.getElementById('cur-pres').textContent = Math.round(c.surface_pressure);
@@ -1132,21 +1402,29 @@ function renderWeather(data, city) {
 
   const track = document.getElementById('hourly-track');
   track.innerHTML = '';
-  for (let i = startIdx; i < Math.min(startIdx + 24, h.time.length); i++) {
+  const hourLimit = Math.min(startIdx + (state.hourlyExtended ? 48 : 24), h.time.length);
+  for (let i = startIdx; i < hourLimit; i++) {
     const hw = wmo(h.weather_code[i]);
     const pp = h.precipitation_probability[i];
     const ptype = precipType(h.weather_code[i], h.temperature_2m[i], h.rain?.[i], h.snowfall?.[i]);
+    const displayTemp = state.hourlyFeelsLike
+      ? (h.apparent_temperature?.[i] ?? h.temperature_2m[i])
+      : h.temperature_2m[i];
+    const barH = Math.round((pp / 100) * 28);
+    const barColor = pp >= 70 ? '#2c7bb6' : pp >= 40 ? '#74add1' : '#abd9e9';
     const cell = document.createElement('div');
     cell.className = 'hour-cell' + (i === startIdx ? ' now' : '');
     cell.innerHTML = `
       <div class="hour-time">${i === startIdx ? 'Now' : formatHour(h.time[i])}</div>
       <div class="hour-icon">${hw.icon}</div>
-      <div class="hour-temp">${tempDisplay(h.temperature_2m[i])}°</div>
-      <div class="hour-precip">${pp > 0 ? `${pp}% ${ptype}` : ptype}</div>
+      <div class="hour-temp">${tempDisplay(displayTemp)}°</div>
+      <div class="hour-bar-wrap">
+        <div class="hour-bar" style="height:${barH}px;background:${barColor}" title="Rain chance: ${pp}%"></div>
+      </div>
+      <div class="hour-precip">${pp > 0 ? `💧${pp}%` : ''}</div>
     `;
     track.appendChild(cell);
   }
-
   state.showExtendedForecast = false;
   renderDailyForecast(d);
 
@@ -1446,6 +1724,9 @@ function showShareWeatherStatus(msg) {
 }
 
 function renderAlerts(data) {
+  // Populate hurricane panel asynchronously
+  fetch('/api/hurricanes').then(r => r.json()).then(d => renderHurricanePanel(d.storms || [])).catch(() => {});
+
   const wrap = document.getElementById('alerts-wrap');
   const list = document.getElementById('alerts-list');
   const features = data?.features || [];
@@ -1454,9 +1735,11 @@ function renderAlerts(data) {
   if (!features.length) {
     hide(wrap);
     if (alertsEmptyEl) show(alertsEmptyEl);
+    updateAlertBadge(0);
     return;
   }
 
+  updateAlertBadge(features.length);
   if (alertsEmptyEl) hide(alertsEmptyEl);
 
   const grouped = new Map();
@@ -1523,17 +1806,21 @@ function renderAlerts(data) {
     });
   show(wrap);
 
-  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-    features.forEach(f => {
-      const id = f.id || f.properties?.id;
-      if (!id || state.alertIdsSeen.has(id)) return;
-      state.alertIdsSeen.add(id);
-      const p = f.properties || {};
-      new Notification(`Weather alert: ${p.event || 'Severe weather'}`, {
-        body: p.headline || p.description || 'An alert was issued for your selected location.',
-      });
-    });
-  }
+  features.forEach(f => {
+    const id = f.id || f.properties?.id;
+    if (!id || state.alertIdsSeen.has(id)) return;
+    state.alertIdsSeen.add(id);
+    const p = f.properties || {};
+    const title = `Weather alert: ${p.event || 'Severe weather'}`;
+    const body = p.headline || p.description || 'An alert was issued for your selected location.';
+
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      new Notification(title, { body, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png' });
+    }
+    if (state.ntfyTopic) {
+      sendNtfyNotification(title, body, { priority: 'high', tags: ['warning,weather'] });
+    }
+  });
 }
 
 async function loadAll(city, source) {
@@ -1597,6 +1884,9 @@ async function loadAll(city, source) {
     } catch (alertsRenderErr) {
       console.warn('Alerts render error:', alertsRenderErr);
     }
+
+    // Fetch discussion non-blocking — US only, silently skip if unavailable
+    fetchDiscussion(city.latitude, city.longitude);
     
     try {
       if (state.showLightning || state.unifiedMapLayers.lightning) renderLightningStrikes(city);
@@ -1929,36 +2219,17 @@ const mapLayerStorageKey = {
   alerts: STORAGE_KEYS.showAlertsLayer,
   temp: STORAGE_KEYS.showTempMarker,
   'sun-moon': STORAGE_KEYS.showSunMoonMarkers,
+  hurricane: STORAGE_KEYS.showHurricaneLayer,
+  wildfire: STORAGE_KEYS.showWildfireLayer,
+  spc: STORAGE_KEYS.showSpcLayer,
 };
 
 function setRadarLayerVisible(visible) {
-  if (!mapsOverview?.map) return;
-  mapsOverview.map.eachLayer(layer => {
-    if (!layer?._url) return;
-    const isRadarLayer =
-      layer._url.includes('nexrad-n0q-900913') ||
-      layer._url.includes('tilecache.rainviewer.com') ||
-      layer._url.includes('radar_base_reflectivity_time');
-    if (isRadarLayer) {
-      if (visible && !mapsOverview.map.hasLayer(layer)) mapsOverview.map.addLayer(layer);
-      if (!visible && mapsOverview.map.hasLayer(layer)) mapsOverview.map.removeLayer(layer);
-    }
-  });
+  mapsOverview?.setRadarVisible?.(visible);
 }
 
 function setCloudLayerVisible(visible) {
-  if (!mapsOverview?.map) return;
-  mapsOverview.map.eachLayer(layer => {
-    if (!layer?._url) return;
-    const isCloudLayer =
-      layer._url.includes('goes_') ||
-      layer._url.includes('/0/0_0.png') ||
-      layer._url.includes('sat_meteo_emulated');
-    if (isCloudLayer) {
-      if (visible && !mapsOverview.map.hasLayer(layer)) mapsOverview.map.addLayer(layer);
-      if (!visible && mapsOverview.map.hasLayer(layer)) mapsOverview.map.removeLayer(layer);
-    }
-  });
+  mapsOverview?.setSatVisible?.(visible);
 }
 
 document.querySelectorAll('#tab-unified-map input[type="checkbox"][data-layer]').forEach(input => {
@@ -2057,16 +2328,278 @@ function startAutoRefresh() {
   });
 }
 
+// ── ntfy push notifications ───────────────────────────────────────────────────
+// ── NWS Forecast Discussion ────────────────────────────────────────────────────
+async function fetchDiscussion(lat, lon) {
+  const drawer = document.getElementById('discussion-drawer');
+  const textEl = document.getElementById('discussion-text');
+  const metaEl = document.getElementById('discussion-meta');
+  const officeEl = document.getElementById('discussion-office');
+  if (!drawer || !textEl) return;
+
+  try {
+    const res = await fetch(`/api/nws/discussion?lat=${lat}&lon=${lon}`);
+    if (!res.ok) {
+      drawer.hidden = true;
+      return;
+    }
+    const data = await res.json();
+    if (!data.text) { drawer.hidden = true; return; }
+
+    drawer.hidden = false;
+    if (officeEl) officeEl.textContent = `· NWS ${data.issuingOffice || data.office}`;
+    if (metaEl) {
+      const issued = data.issuanceTime ? new Date(data.issuanceTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+      metaEl.textContent = issued ? `Issued ${issued}` : '';
+    }
+    // Strip the WMO header block (lines before the first blank line + "AREA FORECAST DISCUSSION")
+    const cleaned = data.text
+      .replace(/^[\s\S]*?(?=\.[\w\s]+\.\.\.)/m, '')  // strip WMO preamble up to first section
+      .trim();
+    textEl.textContent = cleaned || data.text.trim();
+  } catch {
+    if (drawer) drawer.hidden = true;
+  }
+}
+
+async function sendNtfyNotification(title, body, { priority = 'default', tags = [] } = {}) {
+  const topic = state.ntfyTopic;
+  if (!topic) return false;
+  try {
+    const r = await fetch(topic, {
+      method: 'POST',
+      body,
+      headers: {
+        Title: title,
+        Priority: priority,
+        Tags: Array.isArray(tags) ? tags.join(',') : tags,
+      },
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ── ntfy + PWA install wiring ─────────────────────────────────────────────────
+const ntfyUrlInput = document.getElementById('ntfy-url-input');
+const ntfyTestBtn = document.getElementById('ntfy-test-btn');
+const ntfyStatusEl = document.getElementById('ntfy-status');
+
+if (ntfyUrlInput) {
+  ntfyUrlInput.value = state.ntfyTopic;
+  ntfyUrlInput.addEventListener('change', () => {
+    state.ntfyTopic = ntfyUrlInput.value.trim();
+    localStorage.setItem(STORAGE_KEYS.ntfyTopic, state.ntfyTopic);
+  });
+}
+
+if (ntfyTestBtn) {
+  ntfyTestBtn.addEventListener('click', async () => {
+    const topic = (ntfyUrlInput?.value?.trim()) || state.ntfyTopic;
+    if (!topic) {
+      ntfyStatusEl.textContent = 'Enter a topic URL first.';
+      show(ntfyStatusEl);
+      return;
+    }
+    state.ntfyTopic = topic;
+    localStorage.setItem(STORAGE_KEYS.ntfyTopic, topic);
+    ntfyTestBtn.disabled = true;
+    ntfyTestBtn.textContent = 'Sending…';
+    const ok = await sendNtfyNotification(
+      'NeCloud Weather Test',
+      'Notifications are working! Weather alerts will be sent here.',
+      { tags: ['white_check_mark'] }
+    );
+    ntfyTestBtn.disabled = false;
+    ntfyTestBtn.textContent = 'Test';
+    ntfyStatusEl.textContent = ok ? '✓ Test sent!' : '✗ Failed — check the topic URL.';
+    show(ntfyStatusEl);
+  });
+}
+
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  const row = document.getElementById('pwa-install-row');
+  if (row) row.style.display = '';
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  const row = document.getElementById('pwa-install-row');
+  if (row) row.style.display = 'none';
+});
+
+const pwaInstallBtn = document.getElementById('pwa-install-btn');
+if (pwaInstallBtn) {
+  pwaInstallBtn.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    if (outcome === 'accepted') deferredInstallPrompt = null;
+  });
+}
+
+// ── Offline / online banner ────────────────────────────────────────────────────
+const offlineBanner = document.getElementById('offline-banner');
+function syncOfflineState() {
+  if (offlineBanner) offlineBanner.classList.toggle('hidden', navigator.onLine);
+}
+window.addEventListener('online', syncOfflineState);
+window.addEventListener('offline', syncOfflineState);
+syncOfflineState();
+
+// ── Pull-to-refresh ────────────────────────────────────────────────────────────
+(function initPTR() {
+  const ptrEl = document.getElementById('ptr-indicator');
+  if (!ptrEl) return;
+  let startY = 0;
+  let pulling = false;
+  document.addEventListener('touchstart', e => { startY = e.touches[0].clientY; pulling = window.scrollY === 0; }, { passive: true });
+  document.addEventListener('touchend', e => {
+    if (!pulling) return;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (dy > 80 && state.currentCity) {
+      ptrEl.classList.remove('hidden');
+      ptrEl.classList.add('visible');
+      loadAll(state.currentCity, state.currentSource || 'pull-to-refresh').finally(() => {
+        ptrEl.classList.remove('visible');
+        setTimeout(() => ptrEl.classList.add('hidden'), 300);
+      });
+    }
+    pulling = false;
+  }, { passive: true });
+})();
+
+// ── Swipe gestures for tab switching ──────────────────────────────────────────
+(function initSwipe() {
+  const TABS = ['conditions', 'unified-map', 'alerts', 'learn', 'settings'];
+  let touchX = 0;
+  document.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - touchX;
+    if (Math.abs(dx) < 60) return;
+    const cur = TABS.findIndex(t => document.querySelector(`.tab[data-tab="${t}"]`)?.classList.contains('active'));
+    if (cur < 0) return;
+    const next = dx < 0 ? Math.min(cur + 1, TABS.length - 1) : Math.max(cur - 1, 0);
+    if (next !== cur) activateTab(TABS[next]);
+  }, { passive: true });
+})();
+
+// ── Theme toggle buttons ───────────────────────────────────────────────────────
+document.querySelectorAll('.theme-btn').forEach(btn => {
+  btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
+});
+
+// ── Hourly toggles ────────────────────────────────────────────────────────────
+const hourlyFeelsToggle = document.getElementById('hourly-feels-toggle');
+const hourlyExtendBtn = document.getElementById('hourly-extend-btn');
+if (hourlyFeelsToggle) {
+  hourlyFeelsToggle.addEventListener('click', () => {
+    state.hourlyFeelsLike = !state.hourlyFeelsLike;
+    hourlyFeelsToggle.textContent = state.hourlyFeelsLike ? 'Show temp' : 'Feels-like';
+    if (state.currentWeather && state.currentCity) renderWeather(state.currentWeather, state.currentCity);
+  });
+}
+if (hourlyExtendBtn) {
+  hourlyExtendBtn.addEventListener('click', () => {
+    state.hourlyExtended = !state.hourlyExtended;
+    hourlyExtendBtn.textContent = state.hourlyExtended ? '24h' : '48h';
+    if (state.currentWeather && state.currentCity) renderWeather(state.currentWeather, state.currentCity);
+  });
+}
+
+// ── VAPID push subscribe ───────────────────────────────────────────────────────
+const pushSubscribeBtn = document.getElementById('push-subscribe-btn');
+if (pushSubscribeBtn) pushSubscribeBtn.addEventListener('click', subscribePush);
+
+// ── Alert threshold inputs ─────────────────────────────────────────────────────
+function persistThresholds() {
+  localStorage.setItem(STORAGE_KEYS.alertThresholds, JSON.stringify(state.alertThresholds));
+}
+const threshWind = document.getElementById('threshold-wind');
+const threshTempLow = document.getElementById('threshold-temp-low');
+const threshAqi = document.getElementById('threshold-aqi');
+if (threshWind) {
+  threshWind.value = state.alertThresholds.wind || '';
+  threshWind.addEventListener('change', () => {
+    const v = parseFloat(threshWind.value);
+    if (!isNaN(v)) state.alertThresholds.wind = v; else delete state.alertThresholds.wind;
+    persistThresholds();
+  });
+}
+if (threshTempLow) {
+  threshTempLow.value = state.alertThresholds.tempLow ?? '';
+  threshTempLow.addEventListener('change', () => {
+    const v = parseFloat(threshTempLow.value);
+    if (!isNaN(v)) state.alertThresholds.tempLow = v; else delete state.alertThresholds.tempLow;
+    persistThresholds();
+  });
+}
+if (threshAqi) {
+  threshAqi.value = state.alertThresholds.aqi || '';
+  threshAqi.addEventListener('change', () => {
+    const v = parseFloat(threshAqi.value);
+    if (!isNaN(v)) state.alertThresholds.aqi = v; else delete state.alertThresholds.aqi;
+    persistThresholds();
+  });
+}
+
+// ── Digest hour ────────────────────────────────────────────────────────────────
+const digestHourInput = document.getElementById('digest-hour');
+if (digestHourInput) {
+  digestHourInput.value = state.digestHour;
+  digestHourInput.addEventListener('change', () => {
+    const v = parseInt(digestHourInput.value, 10);
+    if (!isNaN(v) && v >= 0 && v <= 23) {
+      state.digestHour = v;
+      localStorage.setItem(STORAGE_KEYS.digestHour, v);
+    }
+  });
+}
+
+// ── PWS URL ────────────────────────────────────────────────────────────────────
+const pwsUrlInput = document.getElementById('pws-url-input');
+const pwsSaveBtn = document.getElementById('pws-save-btn');
+const pwsStatusEl = document.getElementById('pws-status');
+if (pwsUrlInput) pwsUrlInput.value = state.pwsUrl;
+if (pwsSaveBtn) {
+  pwsSaveBtn.addEventListener('click', async () => {
+    const url = pwsUrlInput?.value?.trim();
+    if (!url) return;
+    pwsSaveBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/pws?url=${encodeURIComponent(url)}`);
+      if (res.ok) {
+        state.pwsUrl = url;
+        localStorage.setItem(STORAGE_KEYS.pwsUrl, url);
+        if (pwsStatusEl) { pwsStatusEl.textContent = '✓ PWS connected!'; show(pwsStatusEl); }
+      } else {
+        if (pwsStatusEl) { pwsStatusEl.textContent = '✗ Could not reach that URL.'; show(pwsStatusEl); }
+      }
+    } catch {
+      if (pwsStatusEl) { pwsStatusEl.textContent = '✗ Request failed.'; show(pwsStatusEl); }
+    }
+    pwsSaveBtn.disabled = false;
+  });
+}
+
+// ── Hurricane/wildfire/SPC layer toggle callbacks ─────────────────────────────
+// (handled inside the existing querySelectorAll loop via mapLayerStorageKey)
+
 // ── Default city / query link load ───────────────────────────────────────────
 (async () => {
+  applyTheme(state.theme);
   updateUnitsButton();
   updateNotifyButton();
   syncAutoDetectToggle();
-  
+
   // Sync lightning and wind toggle states
   if (lightningToggle) lightningToggle.checked = state.showLightning;
   if (windToggle) windToggle.checked = state.showWind;
-  
+
   renderSavedCities();
   startAutoRefresh();
 
@@ -2076,6 +2609,23 @@ function startAutoRefresh() {
   }
 
   const qs = new URLSearchParams(window.location.search);
+
+  // Handle share target
+  if (qs.has('share')) {
+    const sharedUrl = qs.get('url') || qs.get('text') || '';
+    const sharedTitle = qs.get('title') || '';
+    if (sharedTitle || sharedUrl) {
+      searchInput.value = sharedTitle || sharedUrl;
+      const results = await geocode(searchInput.value).catch(() => null);
+      const city = results?.results?.[0];
+      if (city) { await loadAll(city, 'share-target'); return; }
+    }
+  }
+
+  // Handle shortcut / deep-link tab routing.
+  const qTab = qs.get('tab');
+  if (qTab) activateTab(qTab);
+
   const qLat = Number(qs.get('lat'));
   const qLon = Number(qs.get('lon'));
   const qName = qs.get('name');

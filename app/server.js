@@ -1,10 +1,38 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
+const webpush = require('web-push');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const weatherCache = new Map();
 const WEATHER_CACHE_MAX_ENTRIES = 500;
+
+// ── Persistent data directory ─────────────────────────────────────────────────
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// ── VAPID web push ────────────────────────────────────────────────────────────
+const VAPID_FILE = path.join(DATA_DIR, 'vapid.json');
+let vapidKeys;
+try {
+  vapidKeys = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf8'));
+} catch {
+  vapidKeys = webpush.generateVAPIDKeys();
+  fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys));
+  console.log('[vapid] Generated new keys. Public key:', vapidKeys.publicKey);
+}
+webpush.setVapidDetails('mailto:nate@necloud.us', vapidKeys.publicKey, vapidKeys.privateKey);
+
+// ── Push subscription store ───────────────────────────────────────────────────
+const SUBS_FILE = path.join(DATA_DIR, 'subscriptions.json');
+let pushSubscriptions = [];
+try {
+  if (fs.existsSync(SUBS_FILE)) pushSubscriptions = JSON.parse(fs.readFileSync(SUBS_FILE, 'utf8'));
+} catch { pushSubscriptions = []; }
+function saveSubs() {
+  try { fs.writeFileSync(SUBS_FILE, JSON.stringify(pushSubscriptions, null, 2)); } catch {}
+}
 
 function setCache(key, data) {
   if (weatherCache.size >= WEATHER_CACHE_MAX_ENTRIES) {
@@ -307,5 +335,286 @@ app.get('/api/radar/times', async (req, res) => {
     res.status(500).json({ error: 'Radar times failed' });
   }
 });
+
+app.use(express.json({ limit: '10kb' }));
+
+// ── VAPID public key ──────────────────────────────────────────────────────────
+app.get('/api/vapid-public-key', (_req, res) => res.json({ publicKey: vapidKeys.publicKey }));
+
+// ── Push subscription management ──────────────────────────────────────────────
+app.post('/api/push-subscribe', (req, res) => {
+  const { subscription, lat, lon, ntfyTopic, thresholds, digestHour } = req.body;
+  if (!subscription?.endpoint) return res.status(400).json({ error: 'Missing subscription' });
+  if (!isValidCoord(lat, -90, 90) || !isValidCoord(lon, -180, 180)) return res.status(400).json({ error: 'Invalid coords' });
+  const idx = pushSubscriptions.findIndex(s => s.subscription.endpoint === subscription.endpoint);
+  const entry = {
+    subscription, lat: Number(lat), lon: Number(lon),
+    ntfyTopic: ntfyTopic || '', thresholds: thresholds || {},
+    digestHour: digestHour ?? 7,
+    seenAlertIds: idx >= 0 ? pushSubscriptions[idx].seenAlertIds : [],
+    lastDigestDate: idx >= 0 ? pushSubscriptions[idx].lastDigestDate : '',
+    lastThresholdDate: '', lastThresholdAlerted: {},
+  };
+  if (idx >= 0) pushSubscriptions[idx] = entry; else pushSubscriptions.push(entry);
+  saveSubs();
+  res.status(201).json({ ok: true });
+});
+
+app.post('/api/push-unsubscribe', (req, res) => {
+  const { endpoint } = req.body || {};
+  pushSubscriptions = pushSubscriptions.filter(s => s.subscription.endpoint !== endpoint);
+  saveSubs();
+  res.json({ ok: true });
+});
+
+// ── Hurricane tracking proxy (NHC) ────────────────────────────────────────────
+const hCache = { data: null, at: 0 };
+app.get('/api/hurricanes', async (_req, res) => {
+  if (hCache.data && Date.now() - hCache.at < 5 * 60 * 1000) return res.json(hCache.data);
+  try {
+    const r = await fetchWithRetry('https://www.nhc.noaa.gov/CurrentStorms.json', {
+      attempts: 2, timeoutMs: 10000,
+      fetchOptions: { headers: { 'User-Agent': 'weather-app-v2 (nate@necloud.us)', Accept: 'application/json' } },
+    });
+    const data = await r.json();
+    hCache.data = { storms: data.activeStorms || [] };
+    hCache.at = Date.now();
+    res.json(hCache.data);
+  } catch (e) {
+    console.error('Hurricane fetch error:', e.message);
+    res.json(hCache.data || { storms: [] });
+  }
+});
+
+// ── Wildfire perimeter proxy (NIFC) ───────────────────────────────────────────
+const wfCache = { data: null, at: 0 };
+app.get('/api/wildfires', async (_req, res) => {
+  if (wfCache.data && Date.now() - wfCache.at < 15 * 60 * 1000) return res.json(wfCache.data);
+  try {
+    const params = new URLSearchParams({
+      where: 'GISAcres>100', outFields: 'IncidentName,GISAcres,PercentContained',
+      f: 'geojson', resultRecordCount: '150', geometryPrecision: '4', outSR: '4326',
+    });
+    const r = await fetchWithRetry(
+      `https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters_Current/FeatureServer/0/query?${params}`,
+      { attempts: 2, timeoutMs: 15000 }
+    );
+    wfCache.data = await r.json();
+    wfCache.at = Date.now();
+    res.json(wfCache.data);
+  } catch (e) {
+    console.error('Wildfire fetch error:', e.message);
+    res.json(wfCache.data || { type: 'FeatureCollection', features: [] });
+  }
+});
+
+// ── SPC storm reports proxy ────────────────────────────────────────────────────
+const spcCache = { data: null, at: 0 };
+function parseSPCCsv(csv, type) {
+  return csv.trim().split('\n').slice(1).flatMap(line => {
+    const p = line.split(',');
+    const lat = parseFloat(p[5]), lon = parseFloat(p[6]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90) return [];
+    return [{
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [lon, lat] },
+      properties: { type, location: p[4] || '', comments: p.slice(7).join(',').slice(0, 120) },
+    }];
+  });
+}
+app.get('/api/spc/reports', async (_req, res) => {
+  if (spcCache.data && Date.now() - spcCache.at < 10 * 60 * 1000) return res.json(spcCache.data);
+  try {
+    const results = await Promise.allSettled(['torn', 'wind', 'hail'].map(t =>
+      fetchWithRetry(`https://www.spc.noaa.gov/climo/reports/today_filtered_${t}.csv`, {
+        attempts: 1, timeoutMs: 8000,
+        fetchOptions: { headers: { 'User-Agent': 'weather-app-v2 (nate@necloud.us)' } },
+      }).then(r => r.text()).then(csv => parseSPCCsv(csv, t))
+    ));
+    spcCache.data = { type: 'FeatureCollection', features: results.flatMap(r => r.status === 'fulfilled' ? r.value : []) };
+    spcCache.at = Date.now();
+    res.json(spcCache.data);
+  } catch (e) {
+    console.error('SPC fetch error:', e.message);
+    res.json(spcCache.data || { type: 'FeatureCollection', features: [] });
+  }
+});
+
+// ── Personal weather station proxy ────────────────────────────────────────────
+app.get('/api/pws', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'Missing url' });
+  let parsed;
+  try { parsed = new URL(url); } catch { return res.status(400).json({ error: 'Invalid url' }); }
+  if (!['http:', 'https:'].includes(parsed.protocol)) return res.status(400).json({ error: 'Only http/https allowed' });
+  try {
+    const r = await fetchWithRetry(url, { attempts: 1, timeoutMs: 5000 });
+    res.json(await r.json());
+  } catch (e) {
+    res.status(502).json({ error: 'PWS fetch failed' });
+  }
+});
+
+// ── NWS Forecast Discussion ───────────────────────────────────────────────────
+const nwsDiscCache = new Map();
+app.get('/api/nws/discussion', async (req, res) => {
+  const { lat, lon } = req.query;
+  if (!isValidCoord(lat, -90, 90) || !isValidCoord(lon, -180, 180)) {
+    return res.status(400).json({ error: 'Invalid coords' });
+  }
+  const cacheKey = `${parseFloat(lat).toFixed(2)},${parseFloat(lon).toFixed(2)}`;
+  const cached = nwsDiscCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < 45 * 60 * 1000) return res.json(cached.data);
+
+  const NWS_HEADERS = { 'User-Agent': 'weather-app-v2 (nate@necloud.us)', Accept: 'application/geo+json' };
+  try {
+    // Step 1: resolve lat/lon to NWS forecast office
+    const ptRes = await fetchWithRetry(
+      `https://api.weather.gov/points/${parseFloat(lat).toFixed(4)},${parseFloat(lon).toFixed(4)}`,
+      { attempts: 2, timeoutMs: 10000, fetchOptions: { headers: NWS_HEADERS } }
+    );
+    if (!ptRes.ok) return res.status(404).json({ error: 'Location not covered by NWS (US only)' });
+    const ptData = await ptRes.json();
+    const cwa = ptData.properties?.cwa;
+    if (!cwa) return res.status(404).json({ error: 'No NWS office found for this location' });
+
+    // Step 2: get list of Area Forecast Discussions for that office
+    const listRes = await fetchWithRetry(
+      `https://api.weather.gov/products/types/AFD/locations/${cwa}`,
+      { attempts: 2, timeoutMs: 10000, fetchOptions: { headers: { 'User-Agent': NWS_HEADERS['User-Agent'] } } }
+    );
+    const listData = await listRes.json();
+    const latest = listData['@graph']?.[0];
+    if (!latest) return res.status(404).json({ error: 'No forecast discussion available' });
+
+    // Step 3: fetch the actual product text
+    const prodUrl = latest['@id'];
+    const prodRes = await fetchWithRetry(prodUrl, {
+      attempts: 2, timeoutMs: 10000,
+      fetchOptions: { headers: { 'User-Agent': NWS_HEADERS['User-Agent'] } }
+    });
+    const prodData = await prodRes.json();
+
+    const result = {
+      office: cwa,
+      issuingOffice: prodData.issuingOffice || cwa,
+      issuanceTime: prodData.issuanceTime,
+      text: prodData.productText || '',
+    };
+    nwsDiscCache.set(cacheKey, { data: result, at: Date.now() });
+    res.json(result);
+  } catch (e) {
+    console.error('[discussion]', e.message);
+    const stale = nwsDiscCache.get(cacheKey);
+    if (stale) return res.json(stale.data);
+    res.status(502).json({ error: 'Could not fetch forecast discussion' });
+  }
+});
+
+// ── Alert watcher + daily digest + threshold cron ─────────────────────────────
+const WMO_SHORT = { 0:'Clear',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',51:'Light drizzle',61:'Light rain',63:'Rain',65:'Heavy rain',71:'Light snow',73:'Snow',75:'Heavy snow',80:'Showers',95:'Thunderstorm' };
+function wmoShort(c) { return WMO_SHORT[c] || 'Variable'; }
+
+async function doWebPush(sub, payload) {
+  try {
+    await webpush.sendNotification(sub.subscription, JSON.stringify(payload));
+  } catch (err) {
+    if (err.statusCode === 410 || err.statusCode === 404) {
+      pushSubscriptions = pushSubscriptions.filter(s => s.subscription.endpoint !== sub.subscription.endpoint);
+      saveSubs();
+    }
+  }
+}
+
+async function doNtfy(topic, title, body, priority = 'default') {
+  if (!topic) return;
+  try {
+    await fetch(topic, { method: 'POST', body, headers: { Title: title, Priority: priority, Tags: 'weather' } });
+  } catch {}
+}
+
+async function alertWatcherCron() {
+  if (!pushSubscriptions.length) return;
+  const now = new Date();
+  const todayStr = now.toDateString();
+  const currentHour = now.getHours();
+  const base = `http://localhost:${PORT}`;
+
+  for (const sub of [...pushSubscriptions]) {
+    try {
+      // ── NWS alerts ──────────────────────────────────────────────────────────
+      const alertData = await fetch(`${base}/api/alerts?lat=${sub.lat}&lon=${sub.lon}`)
+        .then(r => r.json()).catch(() => ({ features: [] }));
+      const newAlerts = (alertData.features || []).filter(f => {
+        const id = f.id || f.properties?.id;
+        return id && !sub.seenAlertIds.includes(id);
+      });
+      if (newAlerts.length) {
+        for (const a of newAlerts) {
+          const p = a.properties || {};
+          const title = `Weather alert: ${p.event || 'Severe weather'}`;
+          const body = p.headline || p.description || 'Alert for your saved location.';
+          await doWebPush(sub, { title, body, tag: 'weather-alert', url: '/?tab=alerts' });
+          await doNtfy(sub.ntfyTopic, title, body, 'high');
+        }
+        sub.seenAlertIds = [...new Set([...sub.seenAlertIds, ...newAlerts.map(f => f.id || f.properties?.id)])].slice(-200);
+        saveSubs();
+      }
+
+      // ── Daily digest ─────────────────────────────────────────────────────────
+      if (sub.lastDigestDate !== todayStr && currentHour === (sub.digestHour ?? 7)) {
+        const wx = await fetch(`${base}/api/weather?lat=${sub.lat}&lon=${sub.lon}`).then(r => r.json()).catch(() => null);
+        if (wx) {
+          const d = wx.daily;
+          const body = `High ${Math.round(d.temperature_2m_max[0])}° / Low ${Math.round(d.temperature_2m_min[0])}° · ${wmoShort(d.weather_code[0])} · Rain ${d.precipitation_probability_max[0]}% · UV ${Math.round(d.uv_index_max[0] ?? 0)}`;
+          await doWebPush(sub, { title: '☀️ NeCloud Daily Forecast', body, tag: 'daily-digest', url: '/' });
+          await doNtfy(sub.ntfyTopic, '☀️ NeCloud Daily Forecast', body);
+          sub.lastDigestDate = todayStr;
+          saveSubs();
+        }
+      }
+
+      // ── Custom thresholds ─────────────────────────────────────────────────────
+      if (sub.thresholds && Object.keys(sub.thresholds).length) {
+        if (sub.lastThresholdDate !== todayStr) { sub.lastThresholdAlerted = {}; sub.lastThresholdDate = todayStr; }
+        const wx = await fetch(`${base}/api/weather?lat=${sub.lat}&lon=${sub.lon}`).then(r => r.json()).catch(() => null);
+        if (wx) {
+          const c = wx.current;
+          const alerted = sub.lastThresholdAlerted || {};
+          if (sub.thresholds.wind && c.wind_gusts_10m > sub.thresholds.wind && !alerted.wind) {
+            alerted.wind = true;
+            const body = `Gusts at ${Math.round(c.wind_gusts_10m)} mph — your threshold is ${sub.thresholds.wind} mph`;
+            await doWebPush(sub, { title: '💨 Wind Alert', body, tag: 'wind-threshold', url: '/' });
+            await doNtfy(sub.ntfyTopic, '💨 Wind Alert', body, 'high');
+          }
+          if (sub.thresholds.tempLow && c.temperature_2m < sub.thresholds.tempLow && !alerted.tempLow) {
+            alerted.tempLow = true;
+            const body = `Temperature at ${Math.round(c.temperature_2m)}°F — at or below your freeze threshold`;
+            await doWebPush(sub, { title: '🧊 Freeze Alert', body, tag: 'temp-threshold', url: '/' });
+            await doNtfy(sub.ntfyTopic, '🧊 Freeze Alert', body);
+          }
+          if (sub.thresholds.aqi) {
+            const aqData = await fetch(`${base}/api/air-quality?lat=${sub.lat}&lon=${sub.lon}`).then(r => r.json()).catch(() => null);
+            const aqi = aqData?.current?.us_aqi;
+            if (aqi && aqi > sub.thresholds.aqi && !alerted.aqi) {
+              alerted.aqi = true;
+              const body = `AQI at ${aqi} — above your threshold of ${sub.thresholds.aqi}`;
+              await doWebPush(sub, { title: '😷 Air Quality Alert', body, tag: 'aqi-threshold', url: '/' });
+              await doNtfy(sub.ntfyTopic, '😷 Air Quality Alert', body);
+            }
+          }
+          sub.lastThresholdAlerted = alerted;
+          saveSubs();
+        }
+      }
+      await new Promise(r => setTimeout(r, 200));
+    } catch (err) {
+      console.error('[cron] Subscription error:', err.message);
+    }
+  }
+}
+
+setTimeout(alertWatcherCron, 15000);
+setInterval(alertWatcherCron, 10 * 60 * 1000);
 
 app.listen(PORT, () => console.log(`Weather app running on port ${PORT}`));

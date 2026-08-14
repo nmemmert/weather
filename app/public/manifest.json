@@ -5,8 +5,9 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
   "background_color": "#191510",
-  "theme_color": "#1a1a1a",
+  "theme_color": "#191510",
   "orientation": "portrait-primary",
   "categories": ["weather", "utilities"],
   "icons": [
@@ -27,6 +28,34 @@
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    }
+  ],
+  "share_target": {
+    "action": "/?share",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  },
+  "shortcuts": [
+    {
+      "name": "Current Conditions",
+      "short_name": "Now",
+      "description": "View current weather and forecast",
+      "url": "/?tab=conditions",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Radar Map",
+      "short_name": "Map",
+      "description": "Live radar and weather map",
+      "url": "/?tab=unified-map",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Active Alerts",
+      "short_name": "Alerts",
+      "description": "Weather warnings and alerts",
+      "url": "/?tab=alerts",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

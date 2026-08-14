@@ -4,7 +4,7 @@ self.addEventListener('message', event => {
   if (event.data === 'skipWaiting') self.skipWaiting();
 });
 
-const CACHE = 'weather-v5';
+const CACHE = 'weather-v7';
 
 // App shell cached on install for offline resilience.
 const PRECACHE = [
@@ -28,6 +28,37 @@ self.addEventListener('activate', event => {
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('push', event => {
+  if (!event.data) return;
+  let payload;
+  try { payload = event.data.json(); } catch { payload = { title: 'NeCloud Weather', body: event.data.text() }; }
+  event.waitUntil(
+    self.registration.showNotification(payload.title || 'NeCloud Weather', {
+      body: payload.body || '',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      tag: payload.tag || 'weather-alert',
+      data: { url: payload.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(wins => {
+      for (const w of wins) {
+        if (w.url.startsWith(self.registration.scope) && 'focus' in w) {
+          w.navigate(url);
+          return w.focus();
+        }
+      }
+      return clients.openWindow(url);
+    })
   );
 });
 
