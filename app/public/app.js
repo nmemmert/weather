@@ -1089,6 +1089,37 @@ const radarFull = radarFullEl
     )
   : { map: null, panTo: () => {}, startPlay: () => {}, stopPlay: () => {}, refresh: () => {} };
 
+(function initMapFullscreen() {
+  const fsBtn = document.getElementById('map-fullscreen-btn');
+  if (!fsBtn) return;
+
+  function isFs() { return document.body.classList.contains('map-fs'); }
+
+  function syncBtn() {
+    if (isFs()) { fsBtn.textContent = '✕'; fsBtn.title = 'Exit fullscreen'; }
+    else { fsBtn.textContent = '⛶'; fsBtn.title = 'Fullscreen'; }
+  }
+
+  function enterFs() {
+    document.body.classList.add('map-fs');
+    syncBtn();
+    setTimeout(() => { unifiedMap && unifiedMap.refresh && unifiedMap.refresh(); }, 120);
+  }
+
+  function exitFs() {
+    document.body.classList.remove('map-fs');
+    syncBtn();
+    setTimeout(() => { unifiedMap && unifiedMap.refresh && unifiedMap.refresh(); }, 120);
+  }
+
+  // Sync on load in case of stale state
+  syncBtn();
+
+  fsBtn.addEventListener('click', () => {
+    if (isFs()) exitFs(); else enterFs();
+  });
+})();
+
 function createOverviewMap(mapEl) {
   const map = new maplibregl.Map({
     container: mapEl,

@@ -1642,16 +1642,83 @@ details[open] .drawer-chevron { transform: rotate(90deg); }
 }
 
 .radar-map-full {
-  height: calc(100vh - 280px);
-  min-height: 420px;
+  height: calc(100dvh - 290px);
+  min-height: 320px;
 }
 
 .radar-full-wrap {
   border: var(--surface-border);
   border-radius: var(--surface-radius-md);
   background: #1a1f2e;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0;
   overflow: hidden;
+}
+
+/* Fullscreen toggle button */
+.radar-fs-btn {
+  background: var(--paper-dark);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  font-size: 1.1rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ── Map fullscreen mode (CSS-based, works on iOS Safari) ── */
+body.map-fs .masthead,
+body.map-fs .bottom-nav,
+body.map-fs .offline-banner,
+body.map-fs .ptr-indicator {
+  display: none !important;
+}
+
+body.map-fs .app {
+  padding: 0 !important;
+}
+
+body.map-fs #tab-unified-map {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+body.map-fs .unified-map-wrap {
+  height: 100dvh;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: #1a1f2e;
+}
+
+body.map-fs .map-controls-header {
+  padding: 0.3rem 0.65rem;
+  gap: 0;
+  border-bottom: none;
+}
+
+body.map-fs .map-controls-row label,
+body.map-fs .map-controls-row select,
+body.map-fs .map-layer-menu {
+  display: none;
+}
+
+body.map-fs .map-controls-row {
+  justify-content: flex-end;
+}
+
+body.map-fs #data-panel {
+  display: none !important;
+}
+
+body.map-fs .unified-map-shell {
+  flex: 1;
+  min-height: 0;
+}
+
+body.map-fs #unified-map {
+  height: 100% !important;
+  min-height: 0 !important;
 }
 
 /* ── Radar controls ── */
@@ -1840,7 +1907,7 @@ details[open] .drawer-chevron { transform: rotate(90deg); }
     padding-bottom: max(4rem,   calc(2rem + env(safe-area-inset-bottom)));
   }
   .radar-map-full {
-    height: calc(100vh - 280px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    height: calc(100dvh - 290px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   }
   .map-overview {
     height: calc(100vh - 470px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
@@ -1942,36 +2009,6 @@ details[open] .drawer-chevron { transform: rotate(90deg); }
   .tabs { display: none; }
   .bottom-nav { display: flex; }
 
-  #tab-radar-full {
-    padding-bottom: max(6.4rem, calc(5.7rem + env(safe-area-inset-bottom, 0px)));
-  }
-
-  .radar-controls-full {
-    display: grid;
-    grid-template-columns: auto auto minmax(0, 1fr);
-    grid-template-areas:
-      'play layer ts'
-      'timeline timeline timeline';
-    gap: 0.45rem 0.5rem;
-    padding: 0.55rem 0.65rem;
-    align-items: center;
-  }
-
-  .radar-controls-full .play-btn { grid-area: play; }
-  .radar-controls-full .layer-btn { grid-area: layer; }
-  .radar-controls-full .radar-ts {
-    grid-area: ts;
-    min-width: 0;
-    text-align: right;
-    font-size: 0.66rem;
-  }
-
-  .radar-controls-full .radar-timeline {
-    grid-area: timeline;
-    width: 100%;
-    height: 24px;
-  }
-
   .radar-controls-full .radar-legend { display: none; }
   .radar-attribution {
     overflow-wrap: anywhere;
@@ -2061,7 +2098,8 @@ details[open] .drawer-chevron { transform: rotate(90deg); }
   .recs-grid { grid-template-columns: repeat(3, 1fr); }
   .day-row { grid-template-columns: 80px 36px 1fr 70px; }
   .day-meta { display: none; }
-  .radar-map { height: 240px; }
+  .radar-embed-wrap .radar-map { height: 220px; }
+  .radar-map-full { height: calc(100dvh - 330px); min-height: 250px; }
   .legend-bar { width: 50px; }
   .settings-row { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
   .settings-value { text-align: left; }
