@@ -1680,6 +1680,27 @@ details[open] .drawer-chevron { transform: rotate(90deg); }
 
 .radar-btn:hover { opacity: 0.72; }
 .layer-btn { background: var(--accent); }
+.fullscreen-btn { font-size: 1rem; }
+
+/* Fullscreen state for the radar embed */
+.radar-embed-wrap:fullscreen,
+.radar-embed-wrap:-webkit-full-screen {
+  display: flex;
+  flex-direction: column;
+  border-radius: 0;
+  margin: 0;
+  background: #000;
+}
+.radar-embed-wrap:fullscreen #radar-embed,
+.radar-embed-wrap:-webkit-full-screen #radar-embed {
+  flex: 1;
+  height: 0;
+}
+.radar-embed-wrap:fullscreen .radar-controls,
+.radar-embed-wrap:-webkit-full-screen .radar-controls {
+  background: rgba(0,0,0,0.8);
+  border-top: 1px solid rgba(255,255,255,0.15);
+}
 
 .radar-timeline {
   flex: 1;

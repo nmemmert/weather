@@ -300,6 +300,7 @@ const STORAGE_KEYS = {
   alertThresholds: 'weather.alertThresholds',
   digestHour: 'weather.digestHour',
   pwsUrl: 'weather.pwsUrl',
+  alertIdsSeen: 'weather.alertIdsSeen',
 };
 
 const state = {
@@ -314,7 +315,7 @@ const state = {
   currentAlerts: null,
   currentSource: 'startup',
   savedCities: JSON.parse(localStorage.getItem(STORAGE_KEYS.savedCities) || '[]'),
-  alertIdsSeen: new Set(),
+  alertIdsSeen: new Set(JSON.parse(localStorage.getItem('weather.alertIdsSeen') || '[]')),
   autoRefreshTimer: null,
   lastRefreshAt: 0,
   lightningMarkers: [],
@@ -1052,6 +1053,30 @@ const radarEmbed = radarEmbedEl
       document.getElementById('embed-layer')
     )
   : { map: null, panTo: () => {}, startPlay: () => {}, stopPlay: () => {}, refresh: () => {} };
+
+// ── Radar embed fullscreen toggle ─────────────────────────────────────────────
+(function initRadarFullscreen() {
+  const btn = document.getElementById('embed-fullscreen');
+  const wrap = document.getElementById('radar-embed-wrap');
+  if (!btn || !wrap) return;
+
+  function updateIcon() {
+    btn.textContent = document.fullscreenElement === wrap ? '✕' : '⛶';
+    btn.title = document.fullscreenElement === wrap ? 'Exit fullscreen' : 'Toggle fullscreen';
+    // MapLibre needs a resize signal after the container size changes.
+    setTimeout(() => radarEmbed.map && radarEmbed.map.resize(), 120);
+  }
+
+  btn.addEventListener('click', () => {
+    if (document.fullscreenElement === wrap) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      wrap.requestFullscreen().catch(() => {});
+    }
+  });
+
+  document.addEventListener('fullscreenchange', updateIcon);
+})();
 
 const radarFullEl = document.getElementById('radar-full');
 const radarFull = radarFullEl
@@ -1806,21 +1831,35 @@ function renderAlerts(data) {
     });
   show(wrap);
 
+  const newlySeen = [];
   features.forEach(f => {
     const id = f.id || f.properties?.id;
     if (!id || state.alertIdsSeen.has(id)) return;
     state.alertIdsSeen.add(id);
+    newlySeen.push(id);
     const p = f.properties || {};
     const title = `Weather alert: ${p.event || 'Severe weather'}`;
     const body = p.headline || p.description || 'An alert was issued for your selected location.';
 
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      new Notification(title, { body, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png' });
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready.then(reg =>
+          reg.showNotification(title, { body, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', tag: id, data: { url: '/?tab=alerts' } })
+        ).catch(() => new Notification(title, { body, icon: '/icons/icon-192.png' }));
+      } else {
+        new Notification(title, { body, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png' });
+      }
     }
     if (state.ntfyTopic) {
       sendNtfyNotification(title, body, { priority: 'high', tags: ['warning,weather'] });
     }
   });
+
+  if (newlySeen.length) {
+    // Persist seen IDs; keep only the most recent 200 to bound localStorage size.
+    const stored = Array.from(state.alertIdsSeen).slice(-200);
+    localStorage.setItem('weather.alertIdsSeen', JSON.stringify(stored));
+  }
 }
 
 async function loadAll(city, source) {
@@ -2477,10 +2516,32 @@ syncOfflineState();
 (function initSwipe() {
   const TABS = ['conditions', 'unified-map', 'alerts', 'learn', 'settings'];
   let touchX = 0;
-  document.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
+  let touchY = 0;
+  let blocked = false;
+
+  function isSwipeBlocked(target) {
+    // Don't intercept touches on maps (panning) or horizontal scroll containers.
+    return !!(
+      target.closest('.maplibregl-map') ||
+      target.closest('#hourly-scroll') ||
+      target.closest('.hourly-track') ||
+      target.closest('.precip-chart-wrap') ||
+      target.closest('.radar-timeline')
+    );
+  }
+
+  document.addEventListener('touchstart', e => {
+    touchX = e.touches[0].clientX;
+    touchY = e.touches[0].clientY;
+    blocked = isSwipeBlocked(e.target);
+  }, { passive: true });
+
   document.addEventListener('touchend', e => {
+    if (blocked) return;
     const dx = e.changedTouches[0].clientX - touchX;
-    if (Math.abs(dx) < 60) return;
+    const dy = e.changedTouches[0].clientY - touchY;
+    // Require the gesture to be more horizontal than vertical, and meet the distance threshold.
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     const cur = TABS.findIndex(t => document.querySelector(`.tab[data-tab="${t}"]`)?.classList.contains('active'));
     if (cur < 0) return;
     const next = dx < 0 ? Math.min(cur + 1, TABS.length - 1) : Math.max(cur - 1, 0);
