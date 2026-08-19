@@ -73,7 +73,10 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-decoration: none;
+  transition: color .15s;
 }
+.hdr-station:hover { color: var(--text); }
 .hdr-live {
   display: flex;
   align-items: center;
@@ -307,7 +310,7 @@ canvas { display: block; }
 <body>
 
 <header class="hdr">
-  <div class="hdr-station" id="stationName">Genesis 8:22</div>
+  <a href="/" class="hdr-station" id="stationName">Genesis 8:22</a>
   <div class="hdr-live"><span class="live-dot"></span>Live</div>
   <div class="hdr-time" id="hdrTime"></div>
 </header>
