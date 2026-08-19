@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Station Dashboard — Sign In</title>
+<title>Station Dashboard — Recover Access</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -14,35 +14,42 @@
   :root { --ink: #ece7dc; --paper: #191510; --paper-dark: #201c16; --border: #3a342a; --accent: #e07848; }
 }
 html, body { min-height: 100%; background: var(--paper); color: var(--ink); font-family: var(--mono); display: flex; align-items: center; justify-content: center; }
-.card { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem 2rem; width: min(380px, 94vw); }
+.card { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem 2rem; width: min(400px, 94vw); }
 h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
-.sub { color: var(--border); font-size: 0.85rem; margin-bottom: 2rem; }
+.sub { color: var(--border); font-size: 0.85rem; margin-bottom: 1.5rem; }
+.hint { background: rgba(185,174,155,0.2); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 1.5rem; font-size: 0.82rem; line-height: 1.6; opacity: 0.85; }
+.hint code { font-family: monospace; background: rgba(185,174,155,0.3); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.95em; }
 label { display: block; font-size: 0.85rem; margin-bottom: 0.35rem; opacity: 0.7; }
 input { width: 100%; padding: 0.6rem 0.8rem; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; color: var(--ink); font-size: 1rem; font-family: var(--mono); margin-bottom: 1rem; }
 input:focus { outline: 2px solid var(--accent); }
 button { width: 100%; padding: 0.7rem; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-family: var(--mono); cursor: pointer; font-weight: 600; }
 button:hover { opacity: 0.88; }
 .error { background: rgba(194,90,42,0.15); border: 1px solid var(--accent); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 1rem; font-size: 0.9rem; color: var(--accent); }
+.back { display: block; text-align: center; margin-top: 1.25rem; font-size: 0.85rem; color: var(--border); text-decoration: none; }
+.back:hover { color: var(--ink); }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>Station Dashboard</h1>
-  <p class="sub">Sign in to view your weather data</p>
-  <div id="err" class="error" style="display:none">Incorrect username or password.</div>
-  <div id="ok" style="display:none;background:rgba(60,160,80,0.12);border:1px solid #3ca050;border-radius:8px;padding:0.6rem 0.8rem;margin-bottom:1rem;font-size:0.9rem;color:#3ca050">Password updated — sign in with your new password.</div>
-  <form method="POST" action="/dashboard/login">
-    <label>Username</label>
-    <input name="username" type="text" autocomplete="username" autofocus required>
-    <label>Password</label>
-    <input name="password" type="password" autocomplete="current-password" required>
-    <button type="submit">Sign In</button>
+  <h1>Recover Access</h1>
+  <p class="sub">Reset your dashboard password</p>
+  <div class="hint">
+    Find your recovery token in the server logs — look for a line that says<br>
+    <code>Dashboard recovery token:</code><br>
+    In CasaOS, open the app's log from the container details panel. The token changes daily.
+  </div>
+  <div id="err" class="error" style="display:none">Invalid token or password too short (min 6 chars).</div>
+  <form method="POST" action="/dashboard/recover">
+    <label>Recovery Token</label>
+    <input name="token" type="text" autocomplete="off" spellcheck="false" autofocus required placeholder="Paste token from server logs">
+    <label>New Password</label>
+    <input name="password" type="password" autocomplete="new-password" required minlength="6">
+    <button type="submit">Set New Password</button>
   </form>
-  <a href="/dashboard/recover" style="display:block;text-align:center;margin-top:1.25rem;font-size:0.85rem;color:var(--border);text-decoration:none" onmouseover="this.style.color='var(--ink)'" onmouseout="this.style.color='var(--border)'">Forgot password?</a>
+  <a href="/dashboard/login" class="back">← Back to sign in</a>
 </div>
 <script>
   if (location.search.includes('error=1')) document.getElementById('err').style.display = 'block';
-  if (location.search.includes('recovered=1')) document.getElementById('ok').style.display = 'block';
 </script>
 </body>
 </html>

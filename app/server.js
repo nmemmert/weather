@@ -62,6 +62,11 @@ function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
 }
 
+function getDailyRecoveryToken() {
+  const day = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+  return crypto.createHmac('sha256', SESSION_SECRET).update('recover:' + day).digest('hex').slice(0, 16);
+}
+
 function requireDashboardAuth(req, res, next) {
   const cookies = parseCookies(req);
   const user = verifySession(cookies.dsession);
@@ -856,6 +861,27 @@ app.get('/dashboard/logout', (_req, res) => {
   res.redirect('/dashboard/login');
 });
 
+// Password recovery
+app.get('/dashboard/recover', (_req, res) => {
+  if (!dashAuth) return res.redirect('/dashboard/setup');
+  res.sendFile(path.join(__dirname, 'public', 'dashboard-recover.html'));
+});
+
+app.post('/dashboard/recover', (req, res) => {
+  if (!dashAuth) return res.redirect('/dashboard/setup');
+  const { token, password } = req.body || {};
+  if (!token || !password || password.length < 6) return res.redirect('/dashboard/recover?error=1');
+  const expected = getDailyRecoveryToken();
+  let match = false;
+  try { match = crypto.timingSafeEqual(Buffer.from(token.trim()), Buffer.from(expected)); } catch {}
+  if (!match) return res.redirect('/dashboard/recover?error=1');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = hashPassword(password, salt);
+  dashAuth = { ...dashAuth, salt, hash };
+  try { fs.writeFileSync(DASH_AUTH_FILE, JSON.stringify(dashAuth)); } catch {}
+  res.redirect('/dashboard/login?recovered=1');
+});
+
 // Main dashboard
 app.get('/dashboard', requireDashboardAuth, (_req, res) => {
   if (!dashAuth) return res.redirect('/dashboard/setup');
@@ -1144,4 +1170,10 @@ app.get('/api/conditions/public', (_req, res) => {
   res.json(cached?.data?.[0]?.lastData || null);
 });
 
-app.listen(PORT, () => console.log(`Weather app running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Weather app running on port ${PORT}`);
+  if (dashAuth) {
+    console.log(`Dashboard recovery token (changes daily): ${getDailyRecoveryToken()}`);
+    console.log(`  Use at http://localhost:${PORT}/dashboard/recover`);
+  }
+});
