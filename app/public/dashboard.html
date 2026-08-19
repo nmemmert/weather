@@ -340,7 +340,7 @@ function drawWindRose(canvas, readings) {
 function renderCharts(readings, range) {
   const area = document.getElementById('chartsArea');
   if (!readings.length) {
-    area.innerHTML = '<div class="status">No recorded data for this range yet. Data is collected every 10 minutes while the station is active.</div>';
+    area.innerHTML = '<div class="status">No recorded data for this range yet. Data is collected every minute while the station is active.</div>';
     return;
   }
 
