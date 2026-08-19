@@ -558,7 +558,7 @@ function saveAmbientConfig() {
 const ambientCaches = new Map();
 
 // Save keys server-side so all devices share them
-app.post('/api/ambient-config', (req, res) => {
+app.post('/api/ambient-config', requireDashboardAuth, (req, res) => {
   const { apiKey, appKey } = req.body || {};
   if (!apiKey || !appKey) return res.status(400).json({ error: 'apiKey and appKey required' });
   ambientServerConfig = { apiKey, appKey };

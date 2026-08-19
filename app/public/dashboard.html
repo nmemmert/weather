@@ -68,6 +68,28 @@ a { color: var(--cool); text-decoration: none; }
 
 /* ── No-data ── */
 .no-data { display: flex; align-items: center; justify-content: center; height: 180px; font-size: 0.85rem; color: var(--ink-light); }
+
+/* ── Settings panel ── */
+.settings-panel { margin-top: 2.5rem; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.settings-panel summary { padding: 0.85rem 1.2rem; cursor: pointer; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-light); background: var(--paper-dark); list-style: none; display: flex; align-items: center; gap: 0.5rem; user-select: none; }
+.settings-panel summary::before { content: '›'; display: inline-block; transition: transform 0.2s; }
+.settings-panel[open] summary::before { transform: rotate(90deg); }
+.settings-panel summary::-webkit-details-marker { display: none; }
+.settings-body { padding: 1.2rem; background: var(--paper-dark); border-top: 1px solid var(--border); }
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 0.75rem 0; }
+@media (max-width: 600px) { .settings-grid { grid-template-columns: 1fr; } }
+.settings-body label { display: block; font-size: 0.8rem; color: var(--ink-light); margin-bottom: 0.3rem; }
+.settings-body input { width: 100%; padding: 0.5rem 0.75rem; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; color: var(--ink); font-size: 0.9rem; font-family: var(--mono); }
+.settings-body input:focus { outline: 2px solid var(--accent); }
+.settings-actions { display: flex; align-items: center; gap: 1rem; margin-top: 0.75rem; }
+.settings-body button { padding: 0.45rem 1.2rem; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-family: var(--mono); font-size: 0.9rem; cursor: pointer; font-weight: 600; }
+.settings-body button:hover { opacity: 0.88; }
+.save-msg { font-size: 0.85rem; color: var(--cool); }
+.save-msg.err { color: var(--accent); }
+.keys-status { font-size: 0.85rem; margin-bottom: 0.25rem; }
+.keys-status.ok { color: var(--cool); }
+.keys-status.missing { color: var(--accent); }
+.keys-hint { font-size: 0.78rem; color: var(--ink-light); margin-top: 1rem; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -120,6 +142,29 @@ a { color: var(--cool); text-decoration: none; }
   <div id="chartsArea">
     <div class="status" id="loadingMsg">Loading history…</div>
   </div>
+
+  <!-- Settings -->
+  <details class="settings-panel" id="settingsPanel">
+    <summary>Station API Keys</summary>
+    <div class="settings-body">
+      <p id="keysStatus" class="keys-status"></p>
+      <div class="settings-grid">
+        <div>
+          <label>Ambient API Key</label>
+          <input id="inputApiKey" type="password" placeholder="Enter API key" autocomplete="off">
+        </div>
+        <div>
+          <label>Application Key</label>
+          <input id="inputAppKey" type="password" placeholder="Enter application key" autocomplete="off">
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button id="saveKeysBtn">Save Keys</button>
+        <span id="saveMsg" class="save-msg"></span>
+      </div>
+      <p class="keys-hint">Find these at <strong>ambientweather.net → My Account → API Keys</strong>. Keys are stored on the server only — never exposed to the browser.</p>
+    </div>
+  </details>
 </div>
 
 <script>
@@ -494,8 +539,51 @@ document.getElementById('refreshBtn').addEventListener('click', () => {
 // Auto-refresh latest every 2 minutes
 setInterval(updateLatest, 120000);
 
+// ── API key settings ─────────────────────────────────────────────────────────
+async function checkKeyStatus() {
+  try {
+    const r = await fetch('/api/ambient-config');
+    if (!r.ok) return;
+    const { configured } = await r.json();
+    const el = document.getElementById('keysStatus');
+    if (configured) {
+      el.textContent = '✓ API keys are configured';
+      el.className = 'keys-status ok';
+    } else {
+      el.textContent = '⚠ No API keys saved — enter them below to enable station data';
+      el.className = 'keys-status missing';
+      document.getElementById('settingsPanel').open = true;
+    }
+  } catch {}
+}
+
+document.getElementById('saveKeysBtn').addEventListener('click', async () => {
+  const apiKey = document.getElementById('inputApiKey').value.trim();
+  const appKey = document.getElementById('inputAppKey').value.trim();
+  const msg = document.getElementById('saveMsg');
+  if (!apiKey || !appKey) { msg.textContent = 'Both fields are required.'; msg.className = 'save-msg err'; return; }
+  try {
+    const r = await fetch('/api/ambient-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey, appKey })
+    });
+    if (r.status === 401) { location.href = '/dashboard/login'; return; }
+    if (!r.ok) throw new Error('Save failed');
+    msg.textContent = 'Saved! Data will start recording on the next poll.';
+    msg.className = 'save-msg';
+    document.getElementById('inputApiKey').value = '';
+    document.getElementById('inputAppKey').value = '';
+    checkKeyStatus();
+  } catch (e) {
+    msg.textContent = 'Error saving keys.';
+    msg.className = 'save-msg err';
+  }
+});
+
 updateLatest();
 loadHistory(currentRange);
+checkKeyStatus();
 </script>
 </body>
 </html>
