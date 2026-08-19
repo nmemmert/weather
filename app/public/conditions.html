@@ -609,6 +609,12 @@ async function load() {
       return;
     }
 
+    // Station name (server may include it)
+    if (d.stationName) {
+      const nameEl = $('stationName');
+      if (nameEl) nameEl.textContent = d.stationName;
+    }
+
     // Header
     if (d.dateutc) {
       const dt = new Date(d.dateutc);

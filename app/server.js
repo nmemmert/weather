@@ -787,12 +787,51 @@ async function alertWatcherCron() {
               await doNtfy(sub.ntfyTopic, '😷 Air Quality Alert', body);
             }
           }
-          // ── Rain rate (station only) ─────────────────────────────────────────
-          if (sub.thresholds.rainRate && stationObs?.rainratein != null && stationObs.rainratein > sub.thresholds.rainRate && !alerted.rainRate) {
-            alerted.rainRate = true;
-            const body = `Rain rate at ${stationObs.rainratein.toFixed(2)} in/hr — your threshold is ${sub.thresholds.rainRate} in/hr`;
-            await doWebPush(sub, { title: '🌧 Heavy Rain Alert', body, tag: 'rain-threshold', url: '/' });
-            await doNtfy(sub.ntfyTopic, '🌧 Heavy Rain Alert', body, 'high');
+          // ── Station-based threshold alerts ───────────────────────────────────
+          if (stationObs) {
+            if (sub.thresholds.rainRate && stationObs.rainratein != null && stationObs.rainratein > sub.thresholds.rainRate && !alerted.rainRate) {
+              alerted.rainRate = true;
+              const body = `Rain rate at ${stationObs.rainratein.toFixed(2)} in/hr — threshold is ${sub.thresholds.rainRate} in/hr`;
+              await doWebPush(sub, { title: '🌧 Heavy Rain Alert', body, tag: 'rain-threshold', url: '/' });
+              await doNtfy(sub.ntfyTopic, '🌧 Heavy Rain Alert', body, 'high');
+            }
+            if (sub.thresholds.tempHigh && stationObs.tempf != null && stationObs.tempf > sub.thresholds.tempHigh && !alerted.tempHigh) {
+              alerted.tempHigh = true;
+              const body = `Station temp at ${stationObs.tempf.toFixed(1)}°F — threshold is ${sub.thresholds.tempHigh}°F`;
+              await doWebPush(sub, { title: '🌡 High Temp Alert', body, tag: 'temp-high', url: '/' });
+              await doNtfy(sub.ntfyTopic, '🌡 High Temp Alert', body, 'high');
+            }
+            if (sub.thresholds.tempLow && stationObs.tempf != null && stationObs.tempf < sub.thresholds.tempLow && !alerted.stationTempLow) {
+              alerted.stationTempLow = true;
+              const body = `Station temp at ${stationObs.tempf.toFixed(1)}°F — threshold is ${sub.thresholds.tempLow}°F`;
+              await doWebPush(sub, { title: '🧊 Low Temp Alert', body, tag: 'temp-low', url: '/' });
+              await doNtfy(sub.ntfyTopic, '🧊 Low Temp Alert', body, 'default');
+            }
+            if (stationObs.tempf != null && stationObs.tempf <= 34 && !alerted.freeze) {
+              alerted.freeze = true;
+              const body = `Station reading ${stationObs.tempf.toFixed(1)}°F — freezing conditions`;
+              await doWebPush(sub, { title: '❄️ Freeze Warning', body, tag: 'freeze', url: '/' });
+              await doNtfy(sub.ntfyTopic, '❄️ Freeze Warning', body, 'urgent');
+            }
+            if (sub.thresholds.wind && stationObs.windgustmph != null && stationObs.windgustmph > sub.thresholds.wind && !alerted.stationWind) {
+              alerted.stationWind = true;
+              const body = `Station gust at ${stationObs.windgustmph.toFixed(0)} mph — threshold is ${sub.thresholds.wind} mph`;
+              await doWebPush(sub, { title: '💨 Wind Gust Alert', body, tag: 'wind-station', url: '/' });
+              await doNtfy(sub.ntfyTopic, '💨 Wind Gust Alert', body, 'high');
+            }
+          }
+          // ── Station offline alert ────────────────────────────────────────────
+          if (!stationObs && ambientServerConfig.apiKey) {
+            const lastReading = lastRecordedDateutc;
+            if (lastReading && Date.now() - lastReading > 20 * 60 * 1000 && !alerted.stationOffline) {
+              alerted.stationOffline = true;
+              const mins = Math.round((Date.now() - lastReading) / 60000);
+              const body = `No station data for ${mins} minutes`;
+              await doWebPush(sub, { title: '📡 Station Offline', body, tag: 'station-offline', url: '/' });
+              await doNtfy(sub.ntfyTopic, '📡 Station Offline', body, 'default');
+            }
+          } else if (stationObs) {
+            alerted.stationOffline = false;
           }
 
           sub.lastThresholdAlerted = alerted;
@@ -1167,7 +1206,110 @@ app.get('/conditions', (_req, res) => {
 app.get('/api/conditions/public', (_req, res) => {
   if (!ambientServerConfig.apiKey) return res.status(503).json({ error: 'Not configured' });
   const cached = ambientCaches.get(ambientServerConfig.apiKey);
-  res.json(cached?.data?.[0]?.lastData || null);
+  const data = cached?.data?.[0]?.lastData || null;
+  if (!data) return res.json(null);
+  res.json({ ...data, stationName: dashAuth?.stationName || 'Genesis 8:22' });
+});
+
+// ── Dashboard management APIs ─────────────────────────────────────────────────
+
+// Change password
+app.post('/api/dashboard/change-password', requireDashboardAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword || newPassword.length < 6)
+    return res.status(400).json({ error: 'Invalid input' });
+  const hash = hashPassword(currentPassword, dashAuth.salt);
+  let match = false;
+  try { match = crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(dashAuth.hash, 'hex')); } catch {}
+  if (!match) return res.status(403).json({ error: 'Current password incorrect' });
+  const salt = crypto.randomBytes(16).toString('hex');
+  dashAuth = { ...dashAuth, salt, hash: hashPassword(newPassword, salt) };
+  try { fs.writeFileSync(DASH_AUTH_FILE, JSON.stringify(dashAuth)); } catch {}
+  res.json({ ok: true });
+});
+
+// Station name
+app.get('/api/dashboard/station-name', requireDashboardAuth, (_req, res) => {
+  res.json({ name: dashAuth?.stationName || 'Genesis 8:22' });
+});
+app.post('/api/dashboard/station-name', requireDashboardAuth, (req, res) => {
+  const { name } = req.body || {};
+  if (!name || typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'Invalid name' });
+  dashAuth = { ...dashAuth, stationName: name.trim().slice(0, 60) };
+  try { fs.writeFileSync(DASH_AUTH_FILE, JSON.stringify(dashAuth)); } catch {}
+  res.json({ ok: true, name: dashAuth.stationName });
+});
+
+// Monthly summary — avg temp, total rain, high temp, high gust per month
+app.get('/api/station/monthly-summary', requireDashboardAuth, (_req, res) => {
+  let files;
+  try { files = fs.readdirSync(STATION_DIR).filter(f => f.endsWith('.jsonl')).sort(); } catch { return res.json([]); }
+  const months = {};
+  for (const file of files) {
+    try {
+      const lines = fs.readFileSync(path.join(STATION_DIR, file), 'utf8').split('\n').filter(Boolean);
+      for (const line of lines) {
+        try {
+          const r = JSON.parse(line);
+          if (!r.dateutc) continue;
+          const key = new Date(r.dateutc).toISOString().slice(0, 7); // YYYY-MM
+          if (!months[key]) months[key] = { temps: [], highTemp: null, highGust: null, dailyRainMax: {} };
+          const m = months[key];
+          if (r.tempf != null) {
+            m.temps.push(r.tempf);
+            if (m.highTemp == null || r.tempf > m.highTemp) m.highTemp = r.tempf;
+          }
+          if (r.windgustmph != null && (m.highGust == null || r.windgustmph > m.highGust)) m.highGust = r.windgustmph;
+          if (r.dailyrainin != null) {
+            const day = stationDateKey(r.dateutc);
+            if (m.dailyRainMax[day] == null || r.dailyrainin > m.dailyRainMax[day]) m.dailyRainMax[day] = r.dailyrainin;
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  const result = Object.entries(months).sort(([a], [b]) => a.localeCompare(b)).map(([key, m]) => ({
+    month: key,
+    avgTemp: m.temps.length ? +(m.temps.reduce((a, b) => a + b, 0) / m.temps.length).toFixed(1) : null,
+    highTemp: m.highTemp != null ? +m.highTemp.toFixed(1) : null,
+    highGust: m.highGust != null ? +m.highGust.toFixed(0) : null,
+    totalRain: +Object.values(m.dailyRainMax).reduce((a, b) => a + b, 0).toFixed(2),
+    readings: m.temps.length,
+  }));
+  res.json(result);
+});
+
+// Subscriptions list (for reading thresholds in dashboard)
+app.get('/api/subscriptions', requireDashboardAuth, (_req, res) => {
+  res.json(pushSubscriptions.map(s => ({ ntfyTopic: s.ntfyTopic, thresholds: s.thresholds || {}, hasWebPush: !!s.subscription })));
+});
+
+// Update thresholds on all subscriptions at once
+app.post('/api/subscriptions/thresholds', requireDashboardAuth, (req, res) => {
+  const { thresholds } = req.body || {};
+  if (!thresholds || typeof thresholds !== 'object') return res.status(400).json({ error: 'Invalid' });
+  for (const sub of pushSubscriptions) sub.thresholds = { ...(sub.thresholds || {}), ...thresholds };
+  saveSubs();
+  res.json({ ok: true, updated: pushSubscriptions.length });
+});
+
+// Trend data — last reading vs 1h ago for each tile
+app.get('/api/station/trend', requireDashboardAuth, (_req, res) => {
+  const hour = loadStationReadings(3600000);
+  if (hour.length < 2) return res.json({});
+  const now = hour[hour.length - 1];
+  const hourAgo = hour[0];
+  const diff = (field) => {
+    const a = hourAgo[field], b = now[field];
+    if (a == null || b == null) return null;
+    const d = b - a;
+    return d > 0.1 ? 'up' : d < -0.1 ? 'down' : 'flat';
+  };
+  res.json({
+    tempf: diff('tempf'), humidity: diff('humidity'), dewPoint: diff('dewPoint'),
+    windspeedmph: diff('windspeedmph'), baromrelin: diff('baromrelin'),
+    uv: diff('uv'), solarradiation: diff('solarradiation'),
+  });
 });
 
 app.listen(PORT, () => {

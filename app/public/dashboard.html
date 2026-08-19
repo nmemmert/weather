@@ -110,6 +110,31 @@ a { color: var(--cool); text-decoration: none; }
 .progress-bar { height: 100%; background: var(--cool); border-radius: 3px; transition: width 0.5s; width: 0%; }
 .progress-text { font-size: 0.82rem; color: var(--ink-light); margin-top: 0.4rem; }
 .backfill-progress { margin-top: 0.75rem; }
+/* Trend arrows */
+.stat-trend { font-size: 0.85rem; margin-left: 0.25rem; }
+.trend-up { color: #e07848; }
+.trend-down { color: #5ab0d8; }
+.trend-flat { color: var(--ink-light); opacity: 0.5; }
+/* Offline banner */
+.offline-banner { background: rgba(194,90,42,0.12); border: 1px solid var(--accent); border-radius: 10px; padding: 0.6rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; color: var(--accent); display: none; }
+/* Monthly summary */
+.monthly-table-wrap { overflow-x: auto; margin-top: 0.75rem; }
+.monthly-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.monthly-table th { text-align: left; padding: 0.4rem 0.75rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-light); border-bottom: 1px solid var(--border); }
+.monthly-table td { padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.monthly-table tr:last-child td { border-bottom: none; }
+.monthly-table tr:hover td { background: var(--paper-darker); }
+/* Heatmap */
+.heatmap-wrap { overflow-x: auto; padding-bottom: 0.5rem; }
+.heatmap { display: inline-grid; grid-auto-flow: column; grid-template-rows: repeat(7, 14px); gap: 3px; }
+.heatmap-cell { width: 14px; height: 14px; border-radius: 3px; background: var(--border); position: relative; }
+.heatmap-cell[title]:hover::after { content: attr(title); position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: #fff; padding: 3px 7px; border-radius: 5px; font-size: 11px; white-space: nowrap; pointer-events: none; z-index: 10; }
+.heatmap-legend { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.6rem; font-size: 0.72rem; color: var(--ink-light); }
+.heatmap-legend-swatch { width: 12px; height: 12px; border-radius: 2px; }
+/* Settings sections */
+.settings-section-hdr { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-light); margin: 1.25rem 0 0.6rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+.threshold-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+@media (max-width: 480px) { .threshold-row { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -127,23 +152,25 @@ a { color: var(--cool); text-decoration: none; }
 </div>
 
 <div class="page">
+  <div class="offline-banner" id="offlineBanner"></div>
+
   <!-- Current stats -->
   <div class="stats" id="statsRow">
-    <div class="stat"><div class="stat-label">Temperature</div><div class="stat-val" id="sTempF">—</div><div class="stat-unit">°F</div></div>
+    <div class="stat"><div class="stat-label">Temperature</div><div class="stat-val" id="sTempF">—<span class="stat-trend" id="trTempF"></span></div><div class="stat-unit">°F</div></div>
     <div class="stat"><div class="stat-label">Feels Like</div><div class="stat-val" id="sFeels">—</div><div class="stat-unit">°F</div></div>
-    <div class="stat"><div class="stat-label">Humidity</div><div class="stat-val" id="sHum">—</div><div class="stat-unit">%</div></div>
-    <div class="stat"><div class="stat-label">Dew Point</div><div class="stat-val" id="sDew">—</div><div class="stat-unit">°F</div></div>
-    <div class="stat"><div class="stat-label">Wind</div><div class="stat-val" id="sWind">—</div><div class="stat-unit">mph</div></div>
+    <div class="stat"><div class="stat-label">Humidity</div><div class="stat-val" id="sHum">—<span class="stat-trend" id="trHum"></span></div><div class="stat-unit">%</div></div>
+    <div class="stat"><div class="stat-label">Dew Point</div><div class="stat-val" id="sDew">—<span class="stat-trend" id="trDew"></span></div><div class="stat-unit">°F</div></div>
+    <div class="stat"><div class="stat-label">Wind</div><div class="stat-val" id="sWind">—<span class="stat-trend" id="trWind"></span></div><div class="stat-unit">mph</div></div>
     <div class="stat"><div class="stat-label">Wind Gust</div><div class="stat-val" id="sGust">—</div><div class="stat-unit">mph</div></div>
     <div class="stat">
       <div class="stat-label">Pressure</div>
-      <div class="stat-val" id="sPres">—</div>
+      <div class="stat-val" id="sPres">—<span class="stat-trend" id="trPres"></span></div>
       <div class="stat-unit">inHg &nbsp;<span id="sTrend" style="font-size:1rem;"></span></div>
     </div>
     <div class="stat"><div class="stat-label">Rain Today</div><div class="stat-val" id="sRain">—</div><div class="stat-unit">in</div></div>
     <div class="stat"><div class="stat-label">Rain Rate</div><div class="stat-val" id="sRainRate">—</div><div class="stat-unit">in/hr</div></div>
-    <div class="stat"><div class="stat-label">UV Index</div><div class="stat-val" id="sUV">—</div><div class="stat-unit"></div></div>
-    <div class="stat"><div class="stat-label">Solar Rad.</div><div class="stat-val" id="sSolar">—</div><div class="stat-unit">W/m²</div></div>
+    <div class="stat"><div class="stat-label">UV Index</div><div class="stat-val" id="sUV">—<span class="stat-trend" id="trUV"></span></div><div class="stat-unit"></div></div>
+    <div class="stat"><div class="stat-label">Solar Rad.</div><div class="stat-val" id="sSolar">—<span class="stat-trend" id="trSolar"></span></div><div class="stat-unit">W/m²</div></div>
     <div class="stat"><div class="stat-label">Battery</div><div class="stat-val" id="sBatt">—</div><div class="stat-unit"></div></div>
   </div>
 
@@ -188,6 +215,22 @@ a { color: var(--cool); text-decoration: none; }
     <summary>All-Time Station Records</summary>
     <div class="settings-body" id="recordsBody">
       <div class="status">Loading records…</div>
+    </div>
+  </details>
+
+  <!-- Monthly Summary -->
+  <details class="settings-panel" id="monthlyPanel" style="margin-top:1rem">
+    <summary>Monthly Summary</summary>
+    <div class="settings-body" id="monthlyBody">
+      <div class="status">Loading…</div>
+    </div>
+  </details>
+
+  <!-- Temperature Heatmap -->
+  <details class="settings-panel" id="heatmapPanel" style="margin-top:1rem">
+    <summary>Temperature Calendar</summary>
+    <div class="settings-body" id="heatmapBody">
+      <div class="status">Loading…</div>
     </div>
   </details>
 
@@ -255,6 +298,45 @@ a { color: var(--cool); text-decoration: none; }
           <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
           <div class="progress-text" id="progressText"></div>
         </div>
+      </div>
+
+      <hr class="settings-divider">
+
+      <div class="settings-section-hdr">Alert Thresholds (Station)</div>
+      <p class="keys-hint" style="margin:0 0 0.75rem">Leave blank to disable. These extend your existing push/ntfy alert subscriptions.</p>
+      <div class="threshold-row">
+        <div><label>High Temp (°F)</label><input id="thrTempHigh" type="number" placeholder="e.g. 95" autocomplete="off"></div>
+        <div><label>Low Temp (°F)</label><input id="thrTempLow" type="number" placeholder="e.g. 35" autocomplete="off"></div>
+        <div><label>Wind Gust (mph)</label><input id="thrWind" type="number" placeholder="e.g. 40" autocomplete="off"></div>
+        <div><label>Rain Rate (in/hr)</label><input id="thrRainRate" type="number" step="0.01" placeholder="e.g. 0.5" autocomplete="off"></div>
+      </div>
+      <div class="settings-actions">
+        <button id="saveThreshBtn">Save Thresholds</button>
+        <span id="threshMsg" class="save-msg"></span>
+      </div>
+
+      <hr class="settings-divider">
+
+      <div class="settings-section-hdr">Station Display</div>
+      <div style="margin-bottom:0.75rem">
+        <label>Station Name (shown on public conditions page)</label>
+        <input id="inputStationName" type="text" placeholder="e.g. Genesis 8:22" maxlength="60" autocomplete="off">
+      </div>
+      <div class="settings-actions">
+        <button id="saveNameBtn">Save Name</button>
+        <span id="nameMsg" class="save-msg"></span>
+      </div>
+
+      <hr class="settings-divider">
+
+      <div class="settings-section-hdr">Change Password</div>
+      <div class="settings-grid">
+        <div><label>Current Password</label><input id="pwCurrent" type="password" autocomplete="current-password"></div>
+        <div><label>New Password (min 6 chars)</label><input id="pwNew" type="password" autocomplete="new-password"></div>
+      </div>
+      <div class="settings-actions">
+        <button id="changePwBtn">Change Password</button>
+        <span id="pwMsg" class="save-msg"></span>
       </div>
     </div>
   </details>
@@ -599,6 +681,7 @@ async function updateLatest() {
     if (meta && d.dateutc) {
       meta.textContent = 'Updated ' + new Date(d.dateutc).toLocaleTimeString();
     }
+    updateOfflineBanner(d.dateutc || null);
   } catch {}
 }
 
@@ -871,16 +954,209 @@ function updateExportLink() {
 document.getElementById('exportRange')?.addEventListener('change', updateExportLink);
 updateExportLink();
 
+// ── Trend arrows ─────────────────────────────────────────────────────────────
+async function updateTrends() {
+  try {
+    const r = await fetch('/api/station/trend');
+    if (!r.ok) return;
+    const t = await r.json();
+    const arrows = { up: '▲', down: '▼', flat: '–' };
+    const cls = { up: 'trend-up', down: 'trend-down', flat: 'trend-flat' };
+    const map = { tempf: 'trTempF', humidity: 'trHum', dewPoint: 'trDew', windspeedmph: 'trWind', baromrelin: 'trPres', uv: 'trUV', solarradiation: 'trSolar' };
+    for (const [key, elId] of Object.entries(map)) {
+      const el = document.getElementById(elId);
+      if (!el || !t[key]) continue;
+      el.textContent = arrows[t[key]] || '';
+      el.className = 'stat-trend ' + (cls[t[key]] || '');
+    }
+  } catch {}
+}
+
+// ── Offline banner ────────────────────────────────────────────────────────────
+function updateOfflineBanner(lastDateutc) {
+  const banner = document.getElementById('offlineBanner');
+  if (!banner) return;
+  if (!lastDateutc) { banner.style.display = 'none'; return; }
+  const mins = Math.round((Date.now() - lastDateutc) / 60000);
+  if (mins > 15) {
+    banner.textContent = `⚠ Station last reported ${mins} minutes ago — may be offline`;
+    banner.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+// ── Monthly summary ───────────────────────────────────────────────────────────
+const monthlyPanel = document.getElementById('monthlyPanel');
+if (monthlyPanel) {
+  monthlyPanel.addEventListener('toggle', async () => {
+    if (!monthlyPanel.open) return;
+    const body = document.getElementById('monthlyBody');
+    if (body.querySelector('table')) return;
+    try {
+      const r = await fetch('/api/station/monthly-summary');
+      if (!r.ok) throw new Error();
+      const data = await r.json();
+      if (!data.length) { body.innerHTML = '<div class="status">No monthly data yet.</div>'; return; }
+      const rows = data.slice().reverse().map(m => {
+        const [yr, mo] = m.month.split('-');
+        const label = new Date(+yr, +mo - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        return `<tr>
+          <td>${label}</td>
+          <td>${m.avgTemp != null ? m.avgTemp.toFixed(1) + '°F' : '—'}</td>
+          <td>${m.highTemp != null ? m.highTemp.toFixed(1) + '°F' : '—'}</td>
+          <td>${m.highGust != null ? m.highGust + ' mph' : '—'}</td>
+          <td>${m.totalRain != null ? m.totalRain.toFixed(2) + '"' : '—'}</td>
+          <td style="color:var(--ink-light)">${m.readings.toLocaleString()}</td>
+        </tr>`;
+      }).join('');
+      body.innerHTML = `<div class="monthly-table-wrap"><table class="monthly-table">
+        <thead><tr><th>Month</th><th>Avg Temp</th><th>High Temp</th><th>Max Gust</th><th>Total Rain</th><th>Readings</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+    } catch { document.getElementById('monthlyBody').innerHTML = '<div class="status error">Failed to load.</div>'; }
+  }, { once: false });
+}
+
+// ── Temperature heatmap ───────────────────────────────────────────────────────
+const heatmapPanel = document.getElementById('heatmapPanel');
+if (heatmapPanel) {
+  heatmapPanel.addEventListener('toggle', async () => {
+    if (!heatmapPanel.open) return;
+    const body = document.getElementById('heatmapBody');
+    if (body.querySelector('.heatmap-wrap')) return;
+    try {
+      const r = await fetch('/api/station/history?range=1y');
+      if (!r.ok) throw new Error();
+      const readings = await r.json();
+      if (!readings.length) { body.innerHTML = '<div class="status">No data yet.</div>'; return; }
+      // Daily high temp
+      const byDay = {};
+      for (const rd of readings) {
+        if (rd.tempf == null || !rd.dateutc) continue;
+        const day = new Date(rd.dateutc).toISOString().slice(0, 10);
+        if (byDay[day] == null || rd.tempf > byDay[day]) byDay[day] = rd.tempf;
+      }
+      // Color scale: cold = cool blue, hot = accent orange
+      function heatColor(t) {
+        if (t == null) return 'var(--border)';
+        const norm = Math.max(0, Math.min(1, (t - 20) / 90));
+        const r = Math.round(42 + norm * (224 - 42));
+        const g = Math.round(107 + norm * (120 - 107));
+        const b = Math.round(138 + norm * (42 - 138));
+        return `rgb(${r},${g},${b})`;
+      }
+      // Build grid: iterate days from 1yr ago to today
+      const today = new Date(); today.setHours(23, 59, 59, 0);
+      const start = new Date(today); start.setFullYear(start.getFullYear() - 1); start.setDate(start.getDate() + 1);
+      // Align to Sunday
+      const startDow = start.getDay(); // 0=Sun
+      const cells = [];
+      for (let i = 0; i < startDow; i++) cells.push(null); // padding
+      const cur = new Date(start);
+      while (cur <= today) {
+        const key = cur.toISOString().slice(0, 10);
+        cells.push({ date: key, temp: byDay[key] ?? null });
+        cur.setDate(cur.getDate() + 1);
+      }
+      const cellHtml = cells.map(c => {
+        if (!c) return `<div class="heatmap-cell" style="background:transparent"></div>`;
+        const t = c.temp;
+        const label = t != null ? `${c.date}: ${t.toFixed(1)}°F` : c.date;
+        return `<div class="heatmap-cell" style="background:${heatColor(t)}" title="${label}"></div>`;
+      }).join('');
+      body.innerHTML = `
+        <div class="heatmap-wrap"><div class="heatmap">${cellHtml}</div></div>
+        <div class="heatmap-legend">
+          <span>Cooler</span>
+          ${[20,35,50,65,80,95,110].map(t => `<div class="heatmap-legend-swatch" style="background:${heatColor(t)}"></div>`).join('')}
+          <span>Hotter</span>
+        </div>`;
+    } catch { document.getElementById('heatmapBody').innerHTML = '<div class="status error">Failed to load.</div>'; }
+  }, { once: false });
+}
+
+// ── Station name ──────────────────────────────────────────────────────────────
+async function loadStationName() {
+  try {
+    const r = await fetch('/api/dashboard/station-name');
+    if (!r.ok) return;
+    const d = await r.json();
+    const el = document.getElementById('inputStationName');
+    if (el && d.name) el.value = d.name;
+  } catch {}
+}
+document.getElementById('saveNameBtn')?.addEventListener('click', async () => {
+  const name = document.getElementById('inputStationName')?.value?.trim();
+  const msg = document.getElementById('nameMsg');
+  if (!name) { msg.textContent = 'Enter a name'; msg.className = 'save-msg err'; return; }
+  try {
+    const r = await fetch('/api/dashboard/station-name', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    if (r.ok) { msg.textContent = 'Saved'; msg.className = 'save-msg'; }
+    else { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
+    setTimeout(() => msg.textContent = '', 3000);
+  } catch { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
+});
+
+// ── Change password ───────────────────────────────────────────────────────────
+document.getElementById('changePwBtn')?.addEventListener('click', async () => {
+  const cur = document.getElementById('pwCurrent')?.value;
+  const nw = document.getElementById('pwNew')?.value;
+  const msg = document.getElementById('pwMsg');
+  if (!cur || !nw || nw.length < 6) { msg.textContent = 'Fill both fields (min 6 chars)'; msg.className = 'save-msg err'; return; }
+  try {
+    const r = await fetch('/api/dashboard/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: cur, newPassword: nw }) });
+    if (r.ok) { msg.textContent = 'Password changed'; msg.className = 'save-msg'; document.getElementById('pwCurrent').value = ''; document.getElementById('pwNew').value = ''; }
+    else { const e = await r.json(); msg.textContent = e.error || 'Error'; msg.className = 'save-msg err'; }
+    setTimeout(() => msg.textContent = '', 4000);
+  } catch { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
+});
+
+// ── Alert thresholds ──────────────────────────────────────────────────────────
+async function loadThresholds() {
+  try {
+    const r = await fetch('/api/subscriptions');
+    if (!r.ok) return;
+    const subs = await r.json();
+    const sub = subs?.find(s => s.thresholds);
+    if (!sub) return;
+    const t = sub.thresholds;
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+    set('thrTempHigh', t.tempHigh);
+    set('thrTempLow', t.tempLow);
+    set('thrWind', t.wind);
+    set('thrRainRate', t.rainRate);
+  } catch {}
+}
+document.getElementById('saveThreshBtn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('threshMsg');
+  const val = id => { const v = document.getElementById(id)?.value; return v ? parseFloat(v) : undefined; };
+  const thresholds = {};
+  const th = val('thrTempHigh'); if (th) thresholds.tempHigh = th;
+  const tl = val('thrTempLow');  if (tl) thresholds.tempLow = tl;
+  const wi = val('thrWind');     if (wi) thresholds.wind = wi;
+  const rr = val('thrRainRate'); if (rr) thresholds.rainRate = rr;
+  try {
+    const r = await fetch('/api/subscriptions/thresholds', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thresholds }) });
+    if (r.ok) { msg.textContent = 'Saved — applies to all your subscriptions'; msg.className = 'save-msg'; }
+    else { msg.textContent = 'Error saving'; msg.className = 'save-msg err'; }
+    setTimeout(() => msg.textContent = '', 4000);
+  } catch { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
+});
+
 // ── Init all new features ─────────────────────────────────────────────────────
 updateLatest();
 updatePressureTrend();
 updateExtStats();
+updateTrends();
 loadRecords();
 loadHistory(currentRange);
 checkKeyStatus();
+loadStationName();
+loadThresholds();
 
 setInterval(updatePressureTrend, 120000);
 setInterval(updateExtStats, 300000);
+setInterval(updateTrends, 120000);
 </script>
 </body>
 </html>
