@@ -4,73 +4,639 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Current Conditions</title>
-<meta http-equiv="refresh" content="120">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Tokens: light ─────────────────────────────────────── */
 :root {
-  --ink: #1a1a1a; --ink-light: #5f5649; --paper: #f5f2ec; --paper-dark: #ece7db;
-  --border: #b9ae9b; --accent: #c25a2a; --cool: #2a6b8a;
-  --mono: 'Segoe UI Rounded', 'Trebuchet MS', sans-serif;
+  --bg:       #edf2f7;
+  --surface:  #ffffff;
+  --card:     #f4f7fb;
+  --border:   #ccd6e2;
+  --text:     #0d1b2a;
+  --muted:    #5a7089;
+  --accent:   #2563eb;
+  --ring:     rgba(37,99,235,0.13);
+  --dot:      rgba(37,99,235,0.065);
+  --live:     #16a34a;
+  --north:    #dc2626;
 }
+/* ── Tokens: dark ──────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
-  :root { --ink: #ece7dc; --ink-light: #beb399; --paper: #191510; --paper-dark: #201c16; --border: #3a342a; --accent: #e07848; --cool: #5ab0d8; }
+  :root:not([data-theme="light"]) {
+    --bg:      #070c14;
+    --surface: #0d1720;
+    --card:    #101c29;
+    --border:  #192e44;
+    --text:    #dce6f0;
+    --muted:   #496070;
+    --accent:  #60a5fa;
+    --ring:    rgba(96,165,250,0.14);
+    --dot:     rgba(96,165,250,0.07);
+    --live:    #4ade80;
+    --north:   #f87171;
+  }
 }
-html, body { min-height: 100%; background: var(--paper); color: var(--ink); font-family: var(--mono); }
-.page { max-width: 700px; margin: 0 auto; padding: 2rem 1rem 3rem; }
-h1 { font-size: 1.3rem; margin-bottom: 0.2rem; }
-.sub { font-size: 0.85rem; color: var(--ink-light); margin-bottom: 2rem; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem; }
-.tile { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem; }
-.tile-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-light); margin-bottom: 0.2rem; }
-.tile-val { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
-.tile-unit { font-size: 0.75rem; color: var(--ink-light); margin-top: 0.1rem; }
-.offline { text-align: center; padding: 3rem; color: var(--ink-light); }
-.updated { font-size: 0.75rem; color: var(--ink-light); margin-top: 1.5rem; }
-.wind-dir { font-size: 1rem; color: var(--ink-light); margin-left: 0.25rem; }
+:root[data-theme="dark"] {
+  --bg:#070c14; --surface:#0d1720; --card:#101c29; --border:#192e44;
+  --text:#dce6f0; --muted:#496070; --accent:#60a5fa;
+  --ring:rgba(96,165,250,0.14); --dot:rgba(96,165,250,0.07);
+  --live:#4ade80; --north:#f87171;
+}
+
+html, body {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Barlow', system-ui, sans-serif;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  gap: 1rem;
+}
+.hdr-station {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hdr-live {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--live);
+  white-space: nowrap;
+}
+.live-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--live);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:.45; transform:scale(.8); }
+}
+.hdr-time {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Hero ────────────────────────────────────────────────── */
+.hero {
+  position: relative;
+  background: var(--surface);
+  padding: 3.5rem 1.5rem 3.25rem;
+  text-align: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+.hero-dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle, var(--dot) 1.5px, transparent 1.5px);
+  background-size: 28px 28px;
+  pointer-events: none;
+}
+/* Radar sweep ring */
+.hero-sweep {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 320px; height: 320px;
+  margin: -160px 0 0 -160px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 78%, var(--accent) 100%);
+  opacity: .18;
+  animation: sweep 14s linear infinite;
+  pointer-events: none;
+}
+.hero-ring {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 400px; height: 400px;
+  margin: -200px 0 0 -200px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  pointer-events: none;
+}
+.hero-ring2 {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 240px; height: 240px;
+  margin: -120px 0 0 -120px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  pointer-events: none;
+}
+@keyframes sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-sweep { animation: none; }
+  .live-dot   { animation: none; }
+}
+.hero-body { position: relative; z-index: 1; }
+
+.temp-row {
+  display: inline-flex;
+  align-items: flex-start;
+  line-height: 1;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.temp-num {
+  font-size: clamp(5.5rem, 22vw, 9.5rem);
+  line-height: 1;
+  transition: color .5s ease;
+}
+.temp-deg {
+  font-size: clamp(1.8rem, 7vw, 3.2rem);
+  margin-top: .15em;
+  margin-left: .05em;
+  opacity: .6;
+  transition: color .5s ease;
+}
+.hero-sub {
+  margin-top: .45rem;
+  font-size: .95rem;
+  color: var(--muted);
+}
+.condition-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  margin-top: .85rem;
+  padding: .3rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: .82rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* ── Content ─────────────────────────────────────────────── */
+.content {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+.section-label {
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: .6rem;
+}
+
+/* ── Metric grid ─────────────────────────────────────────── */
+.row3 {
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  gap: .7rem;
+}
+.row4 {
+  display: grid;
+  grid-template-columns: repeat(2,1fr);
+  gap: .7rem;
+}
+@media (min-width: 480px) {
+  .row4 { grid-template-columns: repeat(4,1fr); }
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem 1.1rem 0.9rem;
+}
+.card-label {
+  font-size: .6rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: .3rem;
+}
+.card-val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.card-unit {
+  font-size: .68rem;
+  color: var(--muted);
+  margin-top: .2rem;
+}
+
+/* ── Wind card ───────────────────────────────────────────── */
+.wind-wrap {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+.wind-compass-wrap { flex-shrink: 0; }
+canvas { display: block; }
+.wind-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .75rem 1.25rem;
+}
+.wind-stat-label {
+  font-size: .6rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: .2rem;
+}
+.wind-stat-val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.wind-stat-unit {
+  font-size: .65rem;
+  color: var(--muted);
+}
+@media (max-width: 460px) {
+  .wind-wrap { flex-direction: column; }
+}
+
+/* ── Footer ──────────────────────────────────────────────── */
+.foot {
+  text-align: center;
+  font-size: .7rem;
+  color: var(--muted);
+  padding-bottom: 1.5rem;
+}
 </style>
 </head>
 <body>
-<div class="page">
-  <h1>Current Conditions</h1>
-  <p class="sub" id="stationSub">Personal weather station</p>
-  <div class="grid" id="grid">
-    <div class="offline">Loading…</div>
+
+<header class="hdr">
+  <div class="hdr-station" id="stationName">Personal Weather Station</div>
+  <div class="hdr-live"><span class="live-dot"></span>Live</div>
+  <div class="hdr-time" id="hdrTime"></div>
+</header>
+
+<section class="hero">
+  <div class="hero-dots"></div>
+  <div class="hero-sweep"></div>
+  <div class="hero-ring"></div>
+  <div class="hero-ring2"></div>
+  <div class="hero-body">
+    <div class="temp-row">
+      <div class="temp-num" id="tempNum">—</div>
+      <div class="temp-deg" id="tempDeg"></div>
+    </div>
+    <div class="hero-sub" id="heroSub"></div>
+    <div><span class="condition-pill" id="condPill">Loading…</span></div>
   </div>
-  <p class="updated" id="updated"></p>
-</div>
+</section>
+
+<main class="content">
+
+  <div>
+    <div class="section-label">Atmosphere</div>
+    <div class="row3">
+      <div class="card">
+        <div class="card-label">Humidity</div>
+        <div class="card-val" id="vHumidity">—</div>
+        <div class="card-unit">%</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Dew Point</div>
+        <div class="card-val" id="vDew">—</div>
+        <div class="card-unit">°F</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Pressure</div>
+        <div class="card-val" id="vPressure">—</div>
+        <div class="card-unit">inHg</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-label">Wind</div>
+    <div class="wind-wrap">
+      <div class="wind-compass-wrap">
+        <canvas id="compass" width="152" height="152" style="width:152px;height:152px"></canvas>
+      </div>
+      <div class="wind-grid">
+        <div>
+          <div class="wind-stat-label">Speed</div>
+          <div class="wind-stat-val" id="vWindSpeed">—</div>
+          <div class="wind-stat-unit">mph</div>
+        </div>
+        <div>
+          <div class="wind-stat-label">Gust</div>
+          <div class="wind-stat-val" id="vWindGust">—</div>
+          <div class="wind-stat-unit">mph</div>
+        </div>
+        <div>
+          <div class="wind-stat-label">From</div>
+          <div class="wind-stat-val" id="vWindDir">—</div>
+          <div class="wind-stat-unit" id="vWindDeg"></div>
+        </div>
+        <div>
+          <div class="wind-stat-label">Max Today</div>
+          <div class="wind-stat-val" id="vWindMax">—</div>
+          <div class="wind-stat-unit">mph</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-label">Precipitation &amp; Solar</div>
+    <div class="row4">
+      <div class="card">
+        <div class="card-label">Rain Today</div>
+        <div class="card-val" id="vRainDay">—</div>
+        <div class="card-unit">inches</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Rain Rate</div>
+        <div class="card-val" id="vRainRate">—</div>
+        <div class="card-unit">in / hr</div>
+      </div>
+      <div class="card">
+        <div class="card-label">UV Index</div>
+        <div class="card-val" id="vUV">—</div>
+        <div class="card-unit" id="vUVLabel"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Solar Rad.</div>
+        <div class="card-val" id="vSolar">—</div>
+        <div class="card-unit">W/m²</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<div class="foot" id="foot">Refreshes automatically every 2 minutes</div>
+
 <script>
+// ── Utilities ────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+const fmt = (v, d = 1) => v != null ? (+v).toFixed(d) : '—';
+
 function cardinal(deg) {
-  return ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][Math.round(deg / 22.5) % 16];
+  if (deg == null) return '—';
+  return ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][
+    Math.round(+deg / 22.5) % 16
+  ];
 }
-function tile(label, val, unit) {
-  return `<div class="tile"><div class="tile-label">${label}</div><div class="tile-val">${val}</div><div class="tile-unit">${unit}</div></div>`;
+
+function tempColor(f) {
+  if (f == null) return 'var(--text)';
+  if (f <= 32) return '#93c5fd';
+  if (f <= 50) return '#60a5fa';
+  if (f <= 65) return 'var(--text)';
+  if (f <= 80) return '#f59e0b';
+  if (f <= 90) return '#f97316';
+  return '#ef4444';
 }
+
+function uvInfo(uv) {
+  if (uv == null) return ['—', 'var(--text)'];
+  if (uv < 3)  return ['Low', '#4ade80'];
+  if (uv < 6)  return ['Moderate', '#facc15'];
+  if (uv < 8)  return ['High', '#f97316'];
+  if (uv < 11) return ['Very High', '#ef4444'];
+  return ['Extreme', '#d946ef'];
+}
+
+function conditionText(d) {
+  if (!d) return '—';
+  if (d.rainratein > 0.05) return '🌧 Raining';
+  const s = d.solarradiation;
+  if (s != null) {
+    if (s > 700) return '☀️ Sunny';
+    if (s > 250) return '🌤 Partly Cloudy';
+    if (s > 60)  return '⛅ Mostly Cloudy';
+    if (s > 5)   return '☁️ Overcast';
+  }
+  return '🌙 Night';
+}
+
+// ── Compass ──────────────────────────────────────────────────────────────────
+function drawCompass(dir) {
+  const canvas = $('compass');
+  if (!canvas) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cssSize = 152;
+  canvas.width  = cssSize * dpr;
+  canvas.height = cssSize * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const cx = cssSize / 2, cy = cssSize / 2, r = cssSize / 2 - 7;
+  const dark = document.documentElement.dataset.theme === 'dark' ||
+    (!document.documentElement.dataset.theme &&
+     window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  const cCard    = dark ? '#101c29' : '#f4f7fb';
+  const cRing    = dark ? '#192e44' : '#ccd6e2';
+  const cLabel   = dark ? '#496070' : '#8fa0b8';
+  const cAccent  = dark ? '#60a5fa' : '#2563eb';
+  const cNorth   = dark ? '#f87171' : '#dc2626';
+
+  // Face
+  ctx.fillStyle = cCard;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Concentric rings
+  [1/3, 2/3, 1].forEach(f => {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * f, 0, Math.PI * 2);
+    ctx.strokeStyle = cRing;
+    ctx.lineWidth = .7;
+    ctx.stroke();
+  });
+
+  // Ticks (major at cardinals, minor at intercardinals)
+  for (let i = 0; i < 8; i++) {
+    const a = (i * 45 - 90) * Math.PI / 180;
+    const isMajor = i % 2 === 0;
+    ctx.beginPath();
+    ctx.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+    ctx.lineTo(cx + (r - (isMajor ? 9 : 5)) * Math.cos(a), cy + (r - (isMajor ? 9 : 5)) * Math.sin(a));
+    ctx.strokeStyle = isMajor ? cLabel : cRing;
+    ctx.lineWidth = isMajor ? 1.5 : .7;
+    ctx.stroke();
+  }
+
+  // Cardinal labels
+  const labelR = r - 18;
+  const cards = [['N', -90, cNorth], ['E', 0, cLabel], ['S', 90, cLabel], ['W', 180, cLabel]];
+  cards.forEach(([lbl, deg, color]) => {
+    const a = deg * Math.PI / 180;
+    ctx.font = `700 ${lbl === 'N' ? 11 : 10}px 'Barlow', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    ctx.fillText(lbl, cx + labelR * Math.cos(a), cy + labelR * Math.sin(a));
+  });
+
+  // Wind arrow (points FROM the origin direction)
+  if (dir != null) {
+    // winddir: degrees from north, clockwise, = where wind comes FROM
+    // Arrow tip at the "from" direction, tail at center
+    const a = ((+dir - 90) * Math.PI) / 180;
+    const tipR   = r * 0.60;
+    const tx = cx + tipR * Math.cos(a);
+    const ty = cy + tipR * Math.sin(a);
+
+    // Shaft
+    ctx.strokeStyle = cAccent;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+
+    // Arrowhead
+    const ha = Math.atan2(ty - cy, tx - cx);
+    const hl = 13;
+    ctx.fillStyle = cAccent;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx - hl * Math.cos(ha - 0.38), ty - hl * Math.sin(ha - 0.38));
+    ctx.lineTo(tx - hl * 0.55 * Math.cos(ha), ty - hl * 0.55 * Math.sin(ha));
+    ctx.lineTo(tx - hl * Math.cos(ha + 0.38), ty - hl * Math.sin(ha + 0.38));
+    ctx.closePath();
+    ctx.fill();
+
+    // Tail stub
+    const tailA = a + Math.PI;
+    ctx.strokeStyle = cAccent;
+    ctx.globalAlpha = .3;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + r * 0.22 * Math.cos(tailA), cy + r * 0.22 * Math.sin(tailA));
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // Center pip
+    ctx.fillStyle = cAccent;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ── Fetch & render ───────────────────────────────────────────────────────────
 async function load() {
   try {
     const r = await fetch('/api/conditions/public');
-    if (!r.ok) throw new Error('unavailable');
+    if (!r.ok) throw new Error('not ok');
     const d = await r.json();
-    if (!d) { document.getElementById('grid').innerHTML = '<div class="offline">No data yet.</div>'; return; }
-    const fmt = (v, digits=1) => v != null ? (+v).toFixed(digits) : '—';
-    const windLabel = d.winddir != null ? `Wind <span class="wind-dir">${cardinal(d.winddir)}</span>` : 'Wind';
-    document.getElementById('grid').innerHTML = [
-      tile('Temperature', fmt(d.tempf), '°F'),
-      tile('Feels Like', fmt(d.feelsLike ?? d.tempf), '°F'),
-      tile('Humidity', fmt(d.humidity, 0), '%'),
-      tile('Dew Point', fmt(d.dewPoint), '°F'),
-      tile(windLabel, fmt(d.windspeedmph), 'mph'),
-      tile('Wind Gust', fmt(d.windgustmph), 'mph'),
-      tile('Pressure', fmt(d.baromrelin, 2), 'inHg'),
-      tile('Rain Today', fmt(d.dailyrainin, 2), 'in'),
-      tile('Rain Rate', fmt(d.rainratein, 2), 'in/hr'),
-      tile('UV Index', fmt(d.uv, 0), ''),
-      tile('Solar', fmt(d.solarradiation, 0), 'W/m²'),
-    ].join('');
-    if (d.dateutc) document.getElementById('updated').textContent = 'Updated ' + new Date(d.dateutc).toLocaleTimeString();
+
+    if (!d) {
+      $('condPill').textContent = 'No data yet';
+      return;
+    }
+
+    // Header
+    if (d.dateutc) {
+      const dt = new Date(d.dateutc);
+      $('hdrTime').textContent = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      $('foot').textContent = `Updated ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · refreshes automatically`;
+    }
+
+    // Hero temperature
+    const tempEl = $('tempNum');
+    const degEl  = $('tempDeg');
+    const tv = d.tempf != null ? +d.tempf : null;
+    tempEl.textContent = tv != null ? Math.round(tv) : '—';
+    degEl.textContent  = tv != null ? '°F' : '';
+    const tc = tempColor(tv);
+    tempEl.style.color = tc;
+    degEl.style.color  = tc;
+
+    // Sub line
+    const fl = d.feelsLike ?? d.tempf;
+    $('heroSub').textContent = fl != null ? `Feels like ${Math.round(+fl)}°F` : '';
+
+    // Condition pill
+    $('condPill').textContent = conditionText(d);
+
+    // Atmosphere
+    set('vHumidity', fmt(d.humidity, 0));
+    set('vDew', fmt(d.dewPoint));
+    set('vPressure', d.baromrelin != null ? fmt(d.baromrelin, 2) : '—');
+
+    // Wind
+    set('vWindSpeed', fmt(d.windspeedmph, 0));
+    set('vWindGust', fmt(d.windgustmph, 0));
+    set('vWindDir', cardinal(d.winddir));
+    set('vWindDeg', d.winddir != null ? Math.round(+d.winddir) + '°' : '');
+    set('vWindMax', fmt(d.maxdailygust, 0));
+    drawCompass(d.winddir);
+
+    // Precip + solar
+    set('vRainDay', fmt(d.dailyrainin, 2));
+    set('vRainRate', fmt(d.rainratein, 2));
+
+    const [uvLabel, uvColor] = uvInfo(d.uv);
+    const uvEl = $('vUV');
+    uvEl.textContent = d.uv != null ? fmt(d.uv, 0) : '—';
+    uvEl.style.color = uvColor;
+    set('vUVLabel', d.uv != null ? uvLabel : '');
+
+    set('vSolar', fmt(d.solarradiation, 0));
+
   } catch {
-    document.getElementById('grid').innerHTML = '<div class="offline">Station data unavailable.</div>';
+    $('condPill').textContent = 'Station offline';
   }
 }
+
+// Draw compass face immediately on load; redrawn with arrow when data arrives
+drawCompass(null);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => drawCompass(null));
+window.addEventListener('resize', () => drawCompass(null));
+
 load();
 </script>
 </body>
