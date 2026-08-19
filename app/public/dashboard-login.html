@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Station Dashboard — Sign In</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --ink: #1a1a1a; --paper: #f5f2ec; --paper-dark: #ece7db;
+  --border: #b9ae9b; --accent: #c25a2a; --mono: 'Segoe UI Rounded', 'Trebuchet MS', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --ink: #ece7dc; --paper: #191510; --paper-dark: #201c16; --border: #3a342a; --accent: #e07848; }
+}
+html, body { min-height: 100%; background: var(--paper); color: var(--ink); font-family: var(--mono); display: flex; align-items: center; justify-content: center; }
+.card { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 16px; padding: 2.5rem 2rem; width: min(380px, 94vw); }
+h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+.sub { color: var(--border); font-size: 0.85rem; margin-bottom: 2rem; }
+label { display: block; font-size: 0.85rem; margin-bottom: 0.35rem; opacity: 0.7; }
+input { width: 100%; padding: 0.6rem 0.8rem; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; color: var(--ink); font-size: 1rem; font-family: var(--mono); margin-bottom: 1rem; }
+input:focus { outline: 2px solid var(--accent); }
+button { width: 100%; padding: 0.7rem; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-family: var(--mono); cursor: pointer; font-weight: 600; }
+button:hover { opacity: 0.88; }
+.error { background: rgba(194,90,42,0.15); border: 1px solid var(--accent); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 1rem; font-size: 0.9rem; color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Station Dashboard</h1>
+  <p class="sub">Sign in to view your weather data</p>
+  <div id="err" class="error" style="display:none">Incorrect username or password.</div>
+  <form method="POST" action="/dashboard/login">
+    <label>Username</label>
+    <input name="username" type="text" autocomplete="username" autofocus required>
+    <label>Password</label>
+    <input name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Sign In</button>
+  </form>
+</div>
+<script>
+  if (location.search.includes('error=1')) document.getElementById('err').style.display = 'block';
+</script>
+</body>
+</html>

@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Station Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --ink: #1a1a1a; --ink-mid: #3d3730; --ink-light: #5f5649;
+  --paper: #f5f2ec; --paper-dark: #ece7db; --paper-darker: #ddd6c7;
+  --border: #b9ae9b; --accent: #c25a2a; --cool: #2a6b8a;
+  --mono: 'Segoe UI Rounded', 'Trebuchet MS', 'Avenir Next', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #ece7dc; --ink-mid: #d2c8b1; --ink-light: #beb399;
+    --paper: #191510; --paper-dark: #201c16; --paper-darker: #2b2620;
+    --border: #3a342a; --accent: #e07848; --cool: #5ab0d8;
+  }
+}
+html, body { min-height: 100%; background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: 15px; }
+a { color: var(--cool); text-decoration: none; }
+
+/* ── Header ── */
+.header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); background: var(--paper-dark); position: sticky; top: 0; z-index: 10; }
+.header h1 { font-size: 1.15rem; }
+.header .meta { font-size: 0.8rem; color: var(--ink-light); }
+.header-right { display: flex; align-items: center; gap: 1rem; font-size: 0.85rem; }
+.station-name { color: var(--cool); font-weight: 600; }
+.logout { color: var(--accent); }
+
+/* ── Wrapper ── */
+.page { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+
+/* ── Stat tiles ── */
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1.75rem; }
+.stat { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem; }
+.stat-label { font-size: 0.72rem; color: var(--ink-light); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2rem; }
+.stat-val { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
+.stat-unit { font-size: 0.75rem; color: var(--ink-light); margin-top: 0.1rem; }
+
+/* ── Range selector ── */
+.range-bar { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.range-bar span { font-size: 0.82rem; color: var(--ink-light); margin-right: 0.25rem; }
+.range-btn { padding: 0.3rem 0.75rem; border: 1px solid var(--border); border-radius: 20px; background: transparent; color: var(--ink); font-family: var(--mono); font-size: 0.82rem; cursor: pointer; transition: background 0.15s; }
+.range-btn.active, .range-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.refresh-btn { margin-left: auto; padding: 0.3rem 0.75rem; border: 1px solid var(--border); border-radius: 20px; background: transparent; color: var(--ink-light); font-family: var(--mono); font-size: 0.82rem; cursor: pointer; }
+.refresh-btn:hover { border-color: var(--cool); color: var(--cool); }
+
+/* ── Chart grid ── */
+.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 720px) { .charts { grid-template-columns: 1fr; } }
+.chart-card { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.2rem 1.2rem; }
+.chart-card.wide { grid-column: 1 / -1; }
+.chart-title { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-light); margin-bottom: 0.75rem; }
+.chart-wrap { position: relative; height: 200px; }
+.chart-card.wide .chart-wrap { height: 180px; }
+
+/* ── Status ── */
+.status { text-align: center; padding: 3rem 1rem; color: var(--ink-light); font-size: 0.9rem; }
+.status.error { color: var(--accent); }
+.updated { font-size: 0.75rem; color: var(--ink-light); margin-top: 0.5rem; }
+
+/* ── Wind rose ── */
+#windRoseCanvas { display: block; margin: 0 auto; }
+
+/* ── No-data ── */
+.no-data { display: flex; align-items: center; justify-content: center; height: 180px; font-size: 0.85rem; color: var(--ink-light); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Station Dashboard</h1>
+    <div class="meta" id="headerMeta">Loading…</div>
+  </div>
+  <div class="header-right">
+    <span class="station-name" id="stationName"></span>
+    <a href="/dashboard/logout" class="logout">Sign out</a>
+  </div>
+</div>
+
+<div class="page">
+  <!-- Current stats -->
+  <div class="stats" id="statsRow">
+    <div class="stat"><div class="stat-label">Temperature</div><div class="stat-val" id="sTempF">—</div><div class="stat-unit">°F</div></div>
+    <div class="stat"><div class="stat-label">Feels Like</div><div class="stat-val" id="sFeels">—</div><div class="stat-unit">°F</div></div>
+    <div class="stat"><div class="stat-label">Humidity</div><div class="stat-val" id="sHum">—</div><div class="stat-unit">%</div></div>
+    <div class="stat"><div class="stat-label">Dew Point</div><div class="stat-val" id="sDew">—</div><div class="stat-unit">°F</div></div>
+    <div class="stat"><div class="stat-label">Wind</div><div class="stat-val" id="sWind">—</div><div class="stat-unit">mph</div></div>
+    <div class="stat"><div class="stat-label">Wind Gust</div><div class="stat-val" id="sGust">—</div><div class="stat-unit">mph</div></div>
+    <div class="stat"><div class="stat-label">Pressure</div><div class="stat-val" id="sPres">—</div><div class="stat-unit">inHg</div></div>
+    <div class="stat"><div class="stat-label">Rain Today</div><div class="stat-val" id="sRain">—</div><div class="stat-unit">in</div></div>
+    <div class="stat"><div class="stat-label">Rain Rate</div><div class="stat-val" id="sRainRate">—</div><div class="stat-unit">in/hr</div></div>
+    <div class="stat"><div class="stat-label">UV Index</div><div class="stat-val" id="sUV">—</div><div class="stat-unit"></div></div>
+    <div class="stat"><div class="stat-label">Solar Rad.</div><div class="stat-val" id="sSolar">—</div><div class="stat-unit">W/m²</div></div>
+    <div class="stat"><div class="stat-label">Battery</div><div class="stat-val" id="sBatt">—</div><div class="stat-unit"></div></div>
+  </div>
+
+  <!-- Range selector -->
+  <div class="range-bar">
+    <span>History:</span>
+    <button class="range-btn" data-range="1h">1h</button>
+    <button class="range-btn" data-range="6h">6h</button>
+    <button class="range-btn active" data-range="24h">24h</button>
+    <button class="range-btn" data-range="7d">7d</button>
+    <button class="range-btn" data-range="30d">30d</button>
+    <button class="range-btn" data-range="90d">90d</button>
+    <button class="range-btn" data-range="1y">1y</button>
+    <button class="range-btn" data-range="2y">2y</button>
+    <button class="range-btn" data-range="3y">3y</button>
+    <button class="refresh-btn" id="refreshBtn">↻ Refresh</button>
+  </div>
+  <div class="updated" id="updatedLine"></div>
+
+  <!-- Charts -->
+  <div id="chartsArea">
+    <div class="status" id="loadingMsg">Loading history…</div>
+  </div>
+</div>
+
+<script>
+const RANGE_LABELS = {
+  '1h': 'HH:mm', '6h': 'HH:mm', '24h': 'HH:mm',
+  '7d': 'MMM dd', '30d': 'MMM dd'
+};
+
+let currentRange = '24h';
+let charts = {};
+
+// ── Formatting helpers ──────────────────────────────────────────────────────
+function fmtTime(ts, range) {
+  const d = new Date(ts);
+  if (['7d','30d','90d','1y','2y','3y'].includes(range)) {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function cardinal(deg) {
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(deg / 22.5) % 16];
+}
+
+// ── Chart factory ───────────────────────────────────────────────────────────
+const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#c25a2a';
+const cool = getComputedStyle(document.documentElement).getPropertyValue('--cool').trim() || '#2a6b8a';
+
+function chartColors() {
+  const style = getComputedStyle(document.documentElement);
+  return {
+    accent: style.getPropertyValue('--accent').trim(),
+    cool: style.getPropertyValue('--cool').trim(),
+    ink: style.getPropertyValue('--ink').trim(),
+    inkLight: style.getPropertyValue('--ink-light').trim(),
+    border: style.getPropertyValue('--border').trim(),
+  };
+}
+
+function makeChart(canvasId, type, datasets, labels, yLabel, opts = {}) {
+  const c = chartColors();
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return null;
+  if (charts[canvasId]) { charts[canvasId].destroy(); }
+
+  const defaults = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: datasets.length > 1, labels: { color: c.inkLight, font: { size: 11 }, boxWidth: 10 } },
+      tooltip: {
+        backgroundColor: 'rgba(0,0,0,0.75)',
+        titleFont: { size: 11 }, bodyFont: { size: 12 },
+        callbacks: {
+          title: items => items[0]?.label || '',
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: c.inkLight, font: { size: 10 }, maxTicksLimit: 8, maxRotation: 0 },
+        grid: { color: c.border + '44' }
+      },
+      y: {
+        ticks: { color: c.inkLight, font: { size: 11 } },
+        grid: { color: c.border + '44' },
+        title: yLabel ? { display: true, text: yLabel, color: c.inkLight, font: { size: 10 } } : undefined,
+      }
+    }
+  };
+
+  const mergedOpts = deepMerge(defaults, opts);
+  charts[canvasId] = new Chart(ctx, { type, data: { labels, datasets }, options: mergedOpts });
+  return charts[canvasId];
+}
+
+function deepMerge(a, b) {
+  const out = { ...a };
+  for (const k of Object.keys(b || {})) {
+    if (b[k] && typeof b[k] === 'object' && !Array.isArray(b[k]) && a[k] && typeof a[k] === 'object') {
+      out[k] = deepMerge(a[k], b[k]);
+    } else {
+      out[k] = b[k];
+    }
+  }
+  return out;
+}
+
+function lineDataset(label, data, color, dashed = false) {
+  return {
+    label, data, borderColor: color, backgroundColor: color + '22',
+    borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 4,
+    borderDash: dashed ? [4, 3] : [], tension: 0.35, fill: false,
+  };
+}
+
+function barDataset(label, data, color) {
+  return { label, data, backgroundColor: color + 'bb', borderColor: color, borderWidth: 1, borderRadius: 2 };
+}
+
+// ── Wind Rose ───────────────────────────────────────────────────────────────
+function drawWindRose(canvas, readings) {
+  const buckets = new Array(16).fill(0);
+  for (const r of readings) {
+    if (r.winddir == null) continue;
+    buckets[Math.round(r.winddir / 22.5) % 16]++;
+  }
+  const max = Math.max(...buckets, 1);
+  const c = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2;
+  const R = Math.min(cx, cy) - 24;
+  const style = getComputedStyle(document.documentElement);
+  const colBorder = style.getPropertyValue('--border').trim();
+  const colAccent = style.getPropertyValue('--accent').trim();
+  const colInk = style.getPropertyValue('--ink').trim();
+  const colInkLight = style.getPropertyValue('--ink-light').trim();
+
+  c.clearRect(0, 0, W, H);
+
+  // grid circles
+  for (let i = 1; i <= 4; i++) {
+    c.beginPath();
+    c.arc(cx, cy, R * i / 4, 0, Math.PI * 2);
+    c.strokeStyle = colBorder + '66';
+    c.lineWidth = 0.5;
+    c.stroke();
+  }
+  // cardinal lines
+  ['N','E','S','W'].forEach((dir, i) => {
+    const a = i * Math.PI / 2 - Math.PI / 2;
+    c.beginPath();
+    c.moveTo(cx, cy);
+    c.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+    c.strokeStyle = colBorder + '88';
+    c.lineWidth = 0.5;
+    c.stroke();
+    const tx = cx + Math.cos(a) * (R + 12);
+    const ty = cy + Math.sin(a) * (R + 12);
+    c.fillStyle = colInkLight;
+    c.font = '10px sans-serif';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(dir, tx, ty);
+  });
+
+  // petals
+  const sliceAngle = (Math.PI * 2) / 16;
+  for (let i = 0; i < 16; i++) {
+    const a = i * sliceAngle - Math.PI / 2 - sliceAngle / 2;
+    const len = (buckets[i] / max) * R;
+    if (len < 1) continue;
+    c.beginPath();
+    c.moveTo(cx, cy);
+    c.arc(cx, cy, len, a, a + sliceAngle);
+    c.closePath();
+    c.fillStyle = colAccent + 'cc';
+    c.fill();
+    c.strokeStyle = colAccent;
+    c.lineWidth = 0.5;
+    c.stroke();
+  }
+  // center dot
+  c.beginPath();
+  c.arc(cx, cy, 3, 0, Math.PI * 2);
+  c.fillStyle = colInk;
+  c.fill();
+}
+
+// ── Render charts ────────────────────────────────────────────────────────────
+function renderCharts(readings, range) {
+  const area = document.getElementById('chartsArea');
+  if (!readings.length) {
+    area.innerHTML = '<div class="status">No recorded data for this range yet. Data is collected every 10 minutes while the station is active.</div>';
+    return;
+  }
+
+  const labels = readings.map(r => fmtTime(r.dateutc, range));
+  const c = chartColors();
+
+  // downsample for 30d to keep chart manageable
+  let pts = readings;
+  if (readings.length > 720) {
+    const step = Math.ceil(readings.length / 720);
+    pts = readings.filter((_, i) => i % step === 0);
+  }
+  const lbls = pts.map(r => fmtTime(r.dateutc, range));
+
+  function field(arr, key) { return arr.map(r => r[key] != null ? r[key] : null); }
+
+  area.innerHTML = `
+    <div class="charts">
+      <!-- Temperature -->
+      <div class="chart-card">
+        <div class="chart-title">Temperature & Feels Like</div>
+        <div class="chart-wrap"><canvas id="cTemp"></canvas></div>
+      </div>
+
+      <!-- Humidity & Dew -->
+      <div class="chart-card">
+        <div class="chart-title">Humidity & Dew Point</div>
+        <div class="chart-wrap"><canvas id="cHum"></canvas></div>
+      </div>
+
+      <!-- Wind speed -->
+      <div class="chart-card">
+        <div class="chart-title">Wind Speed & Gusts</div>
+        <div class="chart-wrap"><canvas id="cWind"></canvas></div>
+      </div>
+
+      <!-- Wind rose -->
+      <div class="chart-card">
+        <div class="chart-title">Wind Direction</div>
+        <div class="chart-wrap" id="roseWrap" style="display:flex;align-items:center;justify-content:center;">
+          <canvas id="windRoseCanvas" width="200" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- Pressure -->
+      <div class="chart-card wide">
+        <div class="chart-title">Barometric Pressure (inHg)</div>
+        <div class="chart-wrap"><canvas id="cPres"></canvas></div>
+      </div>
+
+      <!-- Rain -->
+      <div class="chart-card">
+        <div class="chart-title">Rain Rate (in/hr)</div>
+        <div class="chart-wrap"><canvas id="cRainRate"></canvas></div>
+      </div>
+
+      <!-- Rain accum -->
+      <div class="chart-card">
+        <div class="chart-title">Daily Rain Accumulation (in)</div>
+        <div class="chart-wrap"><canvas id="cRainAccum"></canvas></div>
+      </div>
+
+      <!-- UV + Solar -->
+      <div class="chart-card">
+        <div class="chart-title">UV Index</div>
+        <div class="chart-wrap"><canvas id="cUV"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Solar Radiation (W/m²)</div>
+        <div class="chart-wrap"><canvas id="cSolar"></canvas></div>
+      </div>
+    </div>
+  `;
+
+  makeChart('cTemp', 'line',
+    [lineDataset('Temp °F', field(pts, 'tempf'), c.accent),
+     lineDataset('Feels Like', field(pts, 'feelsLike'), c.cool, true)],
+    lbls, '°F');
+
+  makeChart('cHum', 'line',
+    [lineDataset('Humidity %', field(pts, 'humidity'), c.cool),
+     lineDataset('Dew Point °F', field(pts, 'dewPoint'), c.accent, true)],
+    lbls, null);
+
+  makeChart('cWind', 'line',
+    [lineDataset('Wind mph', field(pts, 'windspeedmph'), c.cool),
+     lineDataset('Gust mph', field(pts, 'windgustmph'), c.accent, true)],
+    lbls, 'mph');
+
+  const hasPres = pts.some(r => r.baromrelin != null);
+  if (hasPres) {
+    makeChart('cPres', 'line',
+      [lineDataset('Rel. Pressure', field(pts, 'baromrelin'), c.accent),
+       lineDataset('Abs. Pressure', field(pts, 'baromabsin'), c.cool, true)],
+      lbls, 'inHg');
+  }
+
+  makeChart('cRainRate', 'bar',
+    [barDataset('Rain Rate', field(pts, 'rainratein'), c.cool)],
+    lbls, 'in/hr');
+
+  makeChart('cRainAccum', 'line',
+    [lineDataset('Daily Rain', field(pts, 'dailyrainin'), c.cool)],
+    lbls, 'in', { scales: { y: { min: 0 } } });
+
+  makeChart('cUV', 'line',
+    [lineDataset('UV Index', field(pts, 'uv'), c.accent)],
+    lbls, null, { scales: { y: { min: 0 } } });
+
+  makeChart('cSolar', 'line',
+    [lineDataset('Solar W/m²', field(pts, 'solarradiation'), c.accent)],
+    lbls, 'W/m²', { scales: { y: { min: 0 } } });
+
+  // Wind rose
+  const roseCanvas = document.getElementById('windRoseCanvas');
+  if (roseCanvas) {
+    const dpr = window.devicePixelRatio || 1;
+    roseCanvas.width = 200 * dpr;
+    roseCanvas.height = 200 * dpr;
+    roseCanvas.style.width = '200px';
+    roseCanvas.style.height = '200px';
+    roseCanvas.getContext('2d').scale(dpr, dpr);
+    drawWindRose(roseCanvas, readings);
+  }
+}
+
+// ── Update current stats ─────────────────────────────────────────────────────
+async function updateLatest() {
+  try {
+    const r = await fetch('/api/station/latest');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d) return;
+
+    const set = (id, val, digits = 1) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val != null ? (typeof val === 'number' ? val.toFixed(digits) : val) : '—';
+    };
+
+    set('sTempF', d.tempf);
+    set('sFeels', d.feelsLike ?? d.tempf);
+    set('sHum', d.humidity, 0);
+    set('sDew', d.dewPoint);
+    set('sWind', d.windspeedmph);
+    set('sGust', d.windgustmph);
+    set('sPres', d.baromrelin, 2);
+    set('sRain', d.dailyrainin, 2);
+    set('sRainRate', d.rainratein, 2);
+    set('sUV', d.uv, 0);
+    set('sSolar', d.solarradiation, 0);
+    set('sBatt', d.battout != null ? (d.battout === 1 ? 'OK' : 'Low') : '—', 0);
+
+    const name = document.getElementById('stationName');
+    if (name && d.PASSKEY) name.textContent = '';
+
+    const meta = document.getElementById('headerMeta');
+    if (meta && d.dateutc) {
+      meta.textContent = 'Updated ' + new Date(d.dateutc).toLocaleTimeString();
+    }
+  } catch {}
+}
+
+// ── Load history ─────────────────────────────────────────────────────────────
+async function loadHistory(range) {
+  const area = document.getElementById('chartsArea');
+  area.innerHTML = '<div class="status" id="loadingMsg">Loading…</div>';
+  try {
+    const r = await fetch(`/api/station/history?range=${range}`);
+    if (r.status === 401) { location.href = '/dashboard/login'; return; }
+    if (!r.ok) throw new Error('Failed');
+    const data = await r.json();
+    renderCharts(data, range);
+    const line = document.getElementById('updatedLine');
+    if (line) line.textContent = `${data.length} readings loaded · fetched ${new Date().toLocaleTimeString()}`;
+  } catch (e) {
+    area.innerHTML = `<div class="status error">Failed to load station history. ${e.message}</div>`;
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.range-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentRange = btn.dataset.range;
+    loadHistory(currentRange);
+  });
+});
+
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  updateLatest();
+  loadHistory(currentRange);
+});
+
+// Auto-refresh latest every 2 minutes
+setInterval(updateLatest, 120000);
+
+updateLatest();
+loadHistory(currentRange);
+</script>
+</body>
+</html>

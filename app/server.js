@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const webpush = require('web-push');
 
 const app = express();
@@ -11,6 +12,107 @@ const WEATHER_CACHE_MAX_ENTRIES = 500;
 // ── Persistent data directory ─────────────────────────────────────────────────
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// ── Dashboard auth ────────────────────────────────────────────────────────────
+const DASH_AUTH_FILE = path.join(DATA_DIR, 'dashboard-auth.json');
+const DASH_SECRET_FILE = path.join(DATA_DIR, 'dashboard-secret.txt');
+
+let dashAuth = null;
+try { dashAuth = JSON.parse(fs.readFileSync(DASH_AUTH_FILE, 'utf8')); } catch {}
+
+let SESSION_SECRET;
+try { SESSION_SECRET = fs.readFileSync(DASH_SECRET_FILE, 'utf8').trim(); } catch {}
+if (!SESSION_SECRET) {
+  SESSION_SECRET = crypto.randomBytes(32).toString('hex');
+  try { fs.writeFileSync(DASH_SECRET_FILE, SESSION_SECRET); } catch {}
+}
+
+function parseCookies(req) {
+  const raw = req.headers.cookie || '';
+  return Object.fromEntries(raw.split(';').map(c => {
+    const [k, ...v] = c.trim().split('=');
+    return [k ? k.trim() : '', v.join('=')];
+  }).filter(([k]) => k));
+}
+
+function signSession(username) {
+  const expiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
+  const payload = Buffer.from(`${username}|${expiry}`).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function verifySession(token) {
+  if (!token || typeof token !== 'string') return null;
+  const dotIdx = token.lastIndexOf('.');
+  if (dotIdx < 1) return null;
+  const payload = token.slice(0, dotIdx);
+  const sig = token.slice(dotIdx + 1);
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(sig + '='.repeat((4 - sig.length % 4) % 4), 'base64'), Buffer.from(expected + '='.repeat((4 - expected.length % 4) % 4), 'base64'))) return null;
+  } catch { return null; }
+  const decoded = Buffer.from(payload, 'base64url').toString();
+  const [username, expiry] = decoded.split('|');
+  if (!username || !expiry || Date.now() > parseInt(expiry)) return null;
+  return username;
+}
+
+function hashPassword(password, salt) {
+  return crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+}
+
+function requireDashboardAuth(req, res, next) {
+  const cookies = parseCookies(req);
+  const user = verifySession(cookies.dsession);
+  if (user) return next();
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Unauthorized' });
+  res.redirect('/dashboard/login');
+}
+
+// ── Station data recording ────────────────────────────────────────────────────
+const STATION_DIR = path.join(DATA_DIR, 'station');
+if (!fs.existsSync(STATION_DIR)) fs.mkdirSync(STATION_DIR, { recursive: true });
+
+function stationDateKey(ts) {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+let lastRecordedDateutc = 0;
+
+function recordStationReading(obs) {
+  if (!obs.dateutc || obs.dateutc === lastRecordedDateutc) return;
+  try {
+    const day = stationDateKey(obs.dateutc);
+    const file = path.join(STATION_DIR, `${day}.jsonl`);
+    fs.appendFileSync(file, JSON.stringify(obs) + '\n');
+    lastRecordedDateutc = obs.dateutc;
+  } catch (e) {
+    console.error('[station] record error:', e.message);
+  }
+}
+
+function loadStationReadings(rangeMs) {
+  const now = Date.now();
+  const cutoff = now - rangeMs;
+  const days = Math.ceil(rangeMs / 86400000) + 1;
+  const results = [];
+  for (let i = 0; i < days; i++) {
+    const day = stationDateKey(now - i * 86400000);
+    const file = path.join(STATION_DIR, `${day}.jsonl`);
+    try {
+      const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+      for (const line of lines) {
+        try {
+          const obj = JSON.parse(line);
+          const ts = obj.dateutc || 0;
+          if (ts >= cutoff) results.push(obj);
+        } catch {}
+      }
+    } catch {}
+  }
+  return results.sort((a, b) => (a.dateutc || 0) - (b.dateutc || 0));
+}
 
 // ── VAPID web push ────────────────────────────────────────────────────────────
 const VAPID_FILE = path.join(DATA_DIR, 'vapid.json');
@@ -587,7 +689,6 @@ async function doNtfy(topic, title, body, priority = 'default') {
 }
 
 async function alertWatcherCron() {
-  if (!pushSubscriptions.length) return;
   const now = new Date();
   const todayStr = now.toDateString();
   const currentHour = now.getHours();
@@ -602,10 +703,15 @@ async function alertWatcherCron() {
       if (sr.ok) {
         const devices = await sr.json();
         const d = devices?.[0]?.lastData;
-        if (d?.dateutc && Date.now() - d.dateutc < 15 * 60 * 1000) stationObs = d;
+        if (d?.dateutc && Date.now() - d.dateutc < 15 * 60 * 1000) {
+          stationObs = d;
+          recordStationReading(d);
+        }
       }
     } catch {}
   }
+
+  if (!pushSubscriptions.length) return;
 
   for (const sub of [...pushSubscriptions]) {
     try {
@@ -688,6 +794,83 @@ async function alertWatcherCron() {
 }
 
 setTimeout(alertWatcherCron, 15000);
-setInterval(alertWatcherCron, 10 * 60 * 1000);
+setInterval(alertWatcherCron, 60 * 1000);
+
+// ── Dashboard routes ──────────────────────────────────────────────────────────
+app.use('/dashboard', express.urlencoded({ extended: false }));
+
+// Setup (first-time account creation)
+app.get('/dashboard/setup', (req, res) => {
+  if (dashAuth) return res.redirect('/dashboard');
+  res.sendFile(path.join(__dirname, 'public', 'dashboard-setup.html'));
+});
+
+app.post('/dashboard/setup', (req, res) => {
+  if (dashAuth) return res.redirect('/dashboard');
+  const { username, password } = req.body || {};
+  if (!username || !password || password.length < 6) {
+    return res.redirect('/dashboard/setup?error=1');
+  }
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = hashPassword(password, salt);
+  dashAuth = { username, salt, hash };
+  try { fs.writeFileSync(DASH_AUTH_FILE, JSON.stringify(dashAuth)); } catch {}
+  const token = signSession(username);
+  res.setHeader('Set-Cookie', `dsession=${token}; HttpOnly; Path=/; Max-Age=${30*24*3600}; SameSite=Lax`);
+  res.redirect('/dashboard');
+});
+
+// Login
+app.get('/dashboard/login', (req, res) => {
+  if (!dashAuth) return res.redirect('/dashboard/setup');
+  const cookies = parseCookies(req);
+  if (verifySession(cookies.dsession)) return res.redirect('/dashboard');
+  res.sendFile(path.join(__dirname, 'public', 'dashboard-login.html'));
+});
+
+app.post('/dashboard/login', (req, res) => {
+  if (!dashAuth) return res.redirect('/dashboard/setup');
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.redirect('/dashboard/login?error=1');
+  if (username !== dashAuth.username) return res.redirect('/dashboard/login?error=1');
+  const hash = hashPassword(password, dashAuth.salt);
+  let match = false;
+  try { match = crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(dashAuth.hash, 'hex')); } catch {}
+  if (!match) return res.redirect('/dashboard/login?error=1');
+  const token = signSession(username);
+  res.setHeader('Set-Cookie', `dsession=${token}; HttpOnly; Path=/; Max-Age=${30*24*3600}; SameSite=Lax`);
+  res.redirect('/dashboard');
+});
+
+// Logout
+app.get('/dashboard/logout', (_req, res) => {
+  res.setHeader('Set-Cookie', 'dsession=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax');
+  res.redirect('/dashboard/login');
+});
+
+// Main dashboard
+app.get('/dashboard', requireDashboardAuth, (_req, res) => {
+  if (!dashAuth) return res.redirect('/dashboard/setup');
+  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
+
+// Station history API
+app.get('/api/station/history', requireDashboardAuth, (req, res) => {
+  const rangeMap = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000, '1y': 31536000000, '2y': 63072000000, '3y': 94608000000 };
+  const range = req.query.range || '24h';
+  const rangeMs = rangeMap[range] || rangeMap['24h'];
+  const readings = loadStationReadings(rangeMs);
+  res.json(readings);
+});
+
+// Latest station reading
+app.get('/api/station/latest', requireDashboardAuth, async (req, res) => {
+  if (!ambientServerConfig.apiKey || !ambientServerConfig.appKey) {
+    return res.status(503).json({ error: 'Station not configured' });
+  }
+  const cached = ambientCaches.get(ambientServerConfig.apiKey);
+  if (cached) return res.json(cached.data?.[0]?.lastData || null);
+  res.json(null);
+});
 
 app.listen(PORT, () => console.log(`Weather app running on port ${PORT}`));
