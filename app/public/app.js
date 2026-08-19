@@ -300,6 +300,8 @@ const STORAGE_KEYS = {
   alertThresholds: 'weather.alertThresholds',
   digestHour: 'weather.digestHour',
   pwsUrl: 'weather.pwsUrl',
+  ambientApiKey: 'weather.ambientApiKey',
+  ambientAppKey: 'weather.ambientAppKey',
   alertIdsSeen: 'weather.alertIdsSeen',
 };
 
@@ -344,6 +346,8 @@ const state = {
   alertThresholds: JSON.parse(localStorage.getItem(STORAGE_KEYS.alertThresholds) || '{}'),
   digestHour: Number(localStorage.getItem(STORAGE_KEYS.digestHour) ?? 7),
   pwsUrl: localStorage.getItem(STORAGE_KEYS.pwsUrl) || '',
+  ambientApiKey: localStorage.getItem(STORAGE_KEYS.ambientApiKey) || '',
+  ambientAppKey: localStorage.getItem(STORAGE_KEYS.ambientAppKey) || '',
   pushSub: null,
   hourlyExtended: false,
   hourlyFeelsLike: false,
@@ -2656,6 +2660,44 @@ if (digestHourInput) {
 }
 
 // ── PWS URL ────────────────────────────────────────────────────────────────────
+// ── Ambient Weather key settings ──────────────────────────────────────────────
+const ambientApiKeyInput = document.getElementById('ambient-api-key-input');
+const ambientAppKeyInput = document.getElementById('ambient-app-key-input');
+const ambientSaveBtn = document.getElementById('ambient-save-btn');
+const ambientStatusEl = document.getElementById('ambient-status');
+if (ambientApiKeyInput) ambientApiKeyInput.value = state.ambientApiKey;
+if (ambientAppKeyInput) ambientAppKeyInput.value = state.ambientAppKey;
+if (ambientSaveBtn) {
+  ambientSaveBtn.addEventListener('click', async () => {
+    const apiKey = ambientApiKeyInput?.value?.trim();
+    const appKey = ambientAppKeyInput?.value?.trim();
+    if (!apiKey || !appKey) {
+      if (ambientStatusEl) { ambientStatusEl.textContent = 'Both keys are required.'; show(ambientStatusEl); }
+      return;
+    }
+    ambientSaveBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/ambient?apiKey=${encodeURIComponent(apiKey)}&appKey=${encodeURIComponent(appKey)}`);
+      if (res.ok) {
+        const devices = await res.json();
+        state.ambientApiKey = apiKey;
+        state.ambientAppKey = appKey;
+        localStorage.setItem(STORAGE_KEYS.ambientApiKey, apiKey);
+        localStorage.setItem(STORAGE_KEYS.ambientAppKey, appKey);
+        const stationName = devices?.[0]?.info?.name || devices?.[0]?.macAddress || 'station';
+        if (ambientStatusEl) { ambientStatusEl.textContent = `✓ Connected to ${stationName}`; show(ambientStatusEl); }
+        fetchAmbientStation();
+      } else {
+        const { error } = await res.json().catch(() => ({}));
+        if (ambientStatusEl) { ambientStatusEl.textContent = `✗ ${error || 'Connection failed'}`; show(ambientStatusEl); }
+      }
+    } catch {
+      if (ambientStatusEl) { ambientStatusEl.textContent = '✗ Request failed.'; show(ambientStatusEl); }
+    }
+    ambientSaveBtn.disabled = false;
+  });
+}
+
 const pwsUrlInput = document.getElementById('pws-url-input');
 const pwsSaveBtn = document.getElementById('pws-save-btn');
 const pwsStatusEl = document.getElementById('pws-status');
@@ -2771,8 +2813,15 @@ async function fetchAmbientStation() {
   const errorEl = document.getElementById('station-error');
   const peekEl = document.getElementById('station-drawer-peek');
 
+  const apiKey = state.ambientApiKey;
+  const appKey = state.ambientAppKey;
+  const params = new URLSearchParams();
+  if (apiKey) params.set('apiKey', apiKey);
+  if (appKey) params.set('appKey', appKey);
+  const qs = params.toString() ? `?${params}` : '';
+
   try {
-    const r = await fetch('/api/ambient');
+    const r = await fetch(`/api/ambient${qs}`);
     if (!r.ok) {
       const { error } = await r.json().catch(() => ({}));
       if (errorEl) { errorEl.textContent = error || 'Station unavailable'; show(errorEl); }
@@ -2793,7 +2842,11 @@ async function fetchAmbientStation() {
     clearInterval(stationRefreshTimer);
     stationRefreshTimer = setInterval(async () => {
       try {
-        const r2 = await fetch('/api/ambient');
+        const p2 = new URLSearchParams();
+        if (state.ambientApiKey) p2.set('apiKey', state.ambientApiKey);
+        if (state.ambientAppKey) p2.set('appKey', state.ambientAppKey);
+        const q2 = p2.toString() ? `?${p2}` : '';
+        const r2 = await fetch(`/api/ambient${q2}`);
         if (r2.ok) {
           const d2 = await r2.json();
           if (Array.isArray(d2) && d2.length) renderAmbientStation(d2[0]);

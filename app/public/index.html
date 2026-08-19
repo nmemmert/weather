@@ -580,6 +580,27 @@
         <input id="digest-hour" class="settings-input settings-input--short" type="number" min="0" max="23" value="7">
       </div>
 
+      <div class="settings-section-title">Ambient Weather Station</div>
+      <div class="settings-row settings-row--block">
+        <div class="settings-row-head">
+          <span class="settings-label">API Key</span>
+        </div>
+        <input id="ambient-api-key-input" class="settings-input" type="password"
+               placeholder="Paste your Ambient Weather API key"
+               autocomplete="off" spellcheck="false">
+      </div>
+      <div class="settings-row settings-row--block">
+        <div class="settings-row-head">
+          <span class="settings-label">Application Key</span>
+          <button id="ambient-save-btn" class="settings-btn" type="button">Save</button>
+        </div>
+        <input id="ambient-app-key-input" class="settings-input" type="password"
+               placeholder="Paste your Ambient Weather Application key"
+               autocomplete="off" spellcheck="false">
+        <p class="settings-help">From ambientweather.net → Account → API Keys. Keys are stored locally in your browser.</p>
+        <p id="ambient-status" class="settings-help hidden"></p>
+      </div>
+
       <div class="settings-section-title">Personal Weather Station</div>
       <div class="settings-row settings-row--block">
         <div class="settings-row-head">
