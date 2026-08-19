@@ -1957,6 +1957,9 @@ async function loadAll(city, source) {
 
     // Fetch discussion non-blocking — US only, silently skip if unavailable
     fetchDiscussion(city.latitude, city.longitude);
+
+    // Fetch personal station non-blocking
+    fetchAmbientStation();
     
     try {
       if (state.showLightning || state.unifiedMapLayers.lightning) renderLightningStrikes(city);
@@ -2758,3 +2761,124 @@ if (pwsSaveBtn) {
     // silent startup fallback
   }
 })();
+
+// ── Ambient Weather personal station ─────────────────────────────────────────
+let stationRefreshTimer = null;
+
+async function fetchAmbientStation() {
+  const loadingEl = document.getElementById('station-loading');
+  const contentEl = document.getElementById('station-content');
+  const errorEl = document.getElementById('station-error');
+  const peekEl = document.getElementById('station-drawer-peek');
+
+  try {
+    const r = await fetch('/api/ambient');
+    if (!r.ok) {
+      const { error } = await r.json().catch(() => ({}));
+      if (errorEl) { errorEl.textContent = error || 'Station unavailable'; show(errorEl); }
+      if (loadingEl) hide(loadingEl);
+      return;
+    }
+    const devices = await r.json();
+    if (!Array.isArray(devices) || !devices.length) {
+      if (errorEl) { errorEl.textContent = 'No devices found on this account.'; show(errorEl); }
+      if (loadingEl) hide(loadingEl);
+      return;
+    }
+    if (loadingEl) hide(loadingEl);
+    if (errorEl) hide(errorEl);
+    renderAmbientStation(devices[0]);
+
+    // Auto-refresh every 60 s
+    clearInterval(stationRefreshTimer);
+    stationRefreshTimer = setInterval(async () => {
+      try {
+        const r2 = await fetch('/api/ambient');
+        if (r2.ok) {
+          const d2 = await r2.json();
+          if (Array.isArray(d2) && d2.length) renderAmbientStation(d2[0]);
+        }
+      } catch {}
+    }, 60000);
+  } catch (e) {
+    if (errorEl) { errorEl.textContent = 'Could not reach station.'; show(errorEl); }
+    if (loadingEl) hide(loadingEl);
+  }
+}
+
+function renderAmbientStation(device) {
+  const data = device?.lastData || {};
+  const info = device?.info || {};
+  const contentEl = document.getElementById('station-content');
+  const peekEl = document.getElementById('station-drawer-peek');
+
+  const stName = info.name || device?.macAddress || 'My Station';
+  const nameEl = document.getElementById('station-name');
+  if (nameEl) nameEl.textContent = stName;
+
+  const updatedEl = document.getElementById('station-updated');
+  if (updatedEl && data.dateutc) {
+    const ago = Math.round((Date.now() - data.dateutc) / 60000);
+    updatedEl.textContent = ago <= 1 ? 'just now' : `${ago} min ago`;
+  }
+
+  const isMetric = state.units !== 'us';
+
+  function fmtTemp(f) {
+    if (f == null) return '--';
+    return isMetric ? Math.round((f - 32) * 5 / 9) : Math.round(f);
+  }
+  function fmtSpeed(mph) {
+    if (mph == null) return '--';
+    return isMetric ? Math.round(mph * 1.60934) : Math.round(mph);
+  }
+  function fmtRain(inches) {
+    if (inches == null) return '--';
+    return isMetric ? (inches * 25.4).toFixed(1) : inches.toFixed(2);
+  }
+
+  const tempUnit = isMetric ? 'C' : 'F';
+  const speedUnit = isMetric ? 'km/h' : 'mph';
+  const rainUnit = isMetric ? 'mm' : 'in';
+
+  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+
+  setEl('st-temp', fmtTemp(data.tempf));
+  setEl('st-temp-unit', tempUnit);
+  setEl('st-feels', data.feelsLike != null ? `Feels ${fmtTemp(data.feelsLike)}°` : '');
+  setEl('st-hum', data.humidity != null ? `${data.humidity}` : '--');
+
+  if (data.tempf != null && data.humidity != null) {
+    const tc = (data.tempf - 32) * 5 / 9;
+    const alpha = Math.log(data.humidity / 100) + (17.62 * tc) / (243.12 + tc);
+    const dewC = (243.12 * alpha) / (17.62 - alpha);
+    const dewDisplay = isMetric ? Math.round(dewC) : Math.round(dewC * 9 / 5 + 32);
+    setEl('st-dew', `Dew ${dewDisplay}°`);
+  }
+
+  setEl('st-wind', fmtSpeed(data.windspeedmph));
+  setEl('st-wind-unit', speedUnit);
+  setEl('st-wind-dir', data.winddir != null ? compassDirFull(data.winddir) : '');
+  setEl('st-gust', fmtSpeed(data.windgustmph));
+  setEl('st-gust-unit', speedUnit);
+  setEl('st-rain-day', fmtRain(data.dailyrainin));
+  setEl('st-rain-unit', rainUnit);
+  const rrDisplay = data.hourlyrainin != null ? `${fmtRain(data.hourlyrainin)} ${rainUnit}/hr` : '';
+  setEl('st-rain-rate', rrDisplay);
+  setEl('st-pressure', data.baromrelin != null ? data.baromrelin.toFixed(2) : '--');
+  setEl('st-uv', data.uv != null ? data.uv : '--');
+  setEl('st-solar', data.solarradiation != null ? Math.round(data.solarradiation) : '--');
+
+  const indoorCard = document.getElementById('st-indoor-card');
+  if (data.tempinf != null) {
+    setEl('st-tempin', fmtTemp(data.tempinf));
+    setEl('st-humin', data.humidityin != null ? `${data.humidityin}% RH` : '');
+    if (indoorCard) indoorCard.classList.remove('hidden');
+  }
+
+  if (peekEl && data.tempf != null) {
+    peekEl.textContent = `· ${fmtTemp(data.tempf)}°${tempUnit} ${data.humidity != null ? data.humidity + '% RH' : ''}`;
+  }
+
+  if (contentEl) show(contentEl);
+}

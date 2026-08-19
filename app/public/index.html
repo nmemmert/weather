@@ -237,6 +237,68 @@
         </div>
       </details>
 
+      <!-- ── MY STATION (Ambient Weather) ── -->
+      <details class="details-drawer station-drawer" id="station-drawer" open>
+        <summary class="drawer-summary">
+          My Station
+          <span class="station-drawer-peek" id="station-drawer-peek"></span>
+          <span class="drawer-chevron">›</span>
+        </summary>
+        <div class="drawer-body" id="station-body">
+          <div class="station-loading" id="station-loading">Loading station data…</div>
+          <div id="station-content" class="hidden">
+            <div class="station-name-row">
+              <span class="station-name" id="station-name"></span>
+              <span class="station-updated" id="station-updated"></span>
+            </div>
+            <div class="card-group drawer-card-group">
+              <div class="stat-card">
+                <div class="stat-label">Outdoor Temp</div>
+                <div class="stat-val"><span id="st-temp">--</span>°<span id="st-temp-unit">F</span></div>
+                <div class="stat-sub" id="st-feels"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Humidity</div>
+                <div class="stat-val"><span id="st-hum">--</span><span class="stat-unit">%</span></div>
+                <div class="stat-sub" id="st-dew"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Wind</div>
+                <div class="stat-val"><span id="st-wind">--</span> <span class="stat-unit" id="st-wind-unit">mph</span></div>
+                <div class="stat-sub" id="st-wind-dir"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Gusts</div>
+                <div class="stat-val"><span id="st-gust">--</span> <span class="stat-unit" id="st-gust-unit">mph</span></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Rain Today</div>
+                <div class="stat-val"><span id="st-rain-day">--</span> <span class="stat-unit" id="st-rain-unit">in</span></div>
+                <div class="stat-sub" id="st-rain-rate"></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Pressure</div>
+                <div class="stat-val"><span id="st-pressure">--</span> <span class="stat-unit">inHg</span></div>
+              </div>
+              <div class="stat-card" id="st-uv-card">
+                <div class="stat-label">UV Index</div>
+                <div class="stat-val"><span id="st-uv">--</span></div>
+              </div>
+              <div class="stat-card" id="st-solar-card">
+                <div class="stat-label">Solar Rad.</div>
+                <div class="stat-val"><span id="st-solar">--</span> <span class="stat-unit">W/m²</span></div>
+              </div>
+              <div class="stat-card" id="st-indoor-card" class="hidden">
+                <div class="stat-label">Indoor Temp</div>
+                <div class="stat-val"><span id="st-tempin">--</span>°</div>
+                <div class="stat-sub" id="st-humin"></div>
+              </div>
+            </div>
+          </div>
+          <div id="station-error" class="station-error hidden"></div>
+        </div>
+      </details>
+
       <div class="footer-note">
         Weather: <a href="https://open-meteo.com" target="_blank">Open-Meteo</a> ·
         Radar: <a href="https://www.rainviewer.com" target="_blank">RainViewer</a> ·

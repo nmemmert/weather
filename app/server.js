@@ -440,6 +440,31 @@ app.get('/api/spc/reports', async (_req, res) => {
   }
 });
 
+// ── Ambient Weather personal station ─────────────────────────────────────────
+const ambientCache = { data: null, at: 0 };
+app.get('/api/ambient', async (_req, res) => {
+  const apiKey = process.env.AMBIENT_API_KEY;
+  const appKey = process.env.AMBIENT_APP_KEY;
+  if (!apiKey || !appKey) return res.status(503).json({ error: 'Ambient Weather keys not configured' });
+
+  if (ambientCache.data && Date.now() - ambientCache.at < 60 * 1000) {
+    return res.json(ambientCache.data);
+  }
+
+  try {
+    const url = `https://rt.ambientweather.net/v1/devices?apiKey=${apiKey}&applicationKey=${appKey}`;
+    const r = await fetchWithRetry(url, { attempts: 2, timeoutMs: 10000, retryDelayMs: 500 });
+    const devices = await r.json();
+    ambientCache.data = devices;
+    ambientCache.at = Date.now();
+    res.json(devices);
+  } catch (e) {
+    console.error('Ambient Weather fetch error:', e.message);
+    if (ambientCache.data) return res.json(ambientCache.data);
+    res.status(502).json({ error: 'Ambient Weather fetch failed' });
+  }
+});
+
 // ── Personal weather station proxy ────────────────────────────────────────────
 app.get('/api/pws', async (req, res) => {
   const { url } = req.query;
