@@ -593,6 +593,20 @@ async function alertWatcherCron() {
   const currentHour = now.getHours();
   const base = `http://localhost:${PORT}`;
 
+  // Fetch station once per cron run — reuses the server-side cache
+  let stationObs = null;
+  if (ambientServerConfig.apiKey && ambientServerConfig.appKey) {
+    try {
+      const qs = `?apiKey=${encodeURIComponent(ambientServerConfig.apiKey)}&appKey=${encodeURIComponent(ambientServerConfig.appKey)}`;
+      const sr = await fetch(`${base}/api/ambient${qs}`);
+      if (sr.ok) {
+        const devices = await sr.json();
+        const d = devices?.[0]?.lastData;
+        if (d?.dateutc && Date.now() - d.dateutc < 15 * 60 * 1000) stationObs = d;
+      }
+    } catch {}
+  }
+
   for (const sub of [...pushSubscriptions]) {
     try {
       // ── NWS alerts ──────────────────────────────────────────────────────────
@@ -634,15 +648,21 @@ async function alertWatcherCron() {
         if (wx) {
           const c = wx.current;
           const alerted = sub.lastThresholdAlerted || {};
-          if (sub.thresholds.wind && c.wind_gusts_10m > sub.thresholds.wind && !alerted.wind) {
+
+          const gustVal = stationObs?.windgustmph ?? c.wind_gusts_10m;
+          const gustSrc = stationObs ? 'station' : 'forecast model';
+          if (sub.thresholds.wind && gustVal > sub.thresholds.wind && !alerted.wind) {
             alerted.wind = true;
-            const body = `Gusts at ${Math.round(c.wind_gusts_10m)} mph — your threshold is ${sub.thresholds.wind} mph`;
+            const body = `Gusts at ${Math.round(gustVal)} mph — your threshold is ${sub.thresholds.wind} mph (${gustSrc})`;
             await doWebPush(sub, { title: '💨 Wind Alert', body, tag: 'wind-threshold', url: '/' });
             await doNtfy(sub.ntfyTopic, '💨 Wind Alert', body, 'high');
           }
-          if (sub.thresholds.tempLow && c.temperature_2m < sub.thresholds.tempLow && !alerted.tempLow) {
+
+          const tempVal = stationObs?.tempf ?? c.temperature_2m;
+          const tempSrc = stationObs ? 'station' : 'forecast model';
+          if (sub.thresholds.tempLow && tempVal < sub.thresholds.tempLow && !alerted.tempLow) {
             alerted.tempLow = true;
-            const body = `Temperature at ${Math.round(c.temperature_2m)}°F — at or below your freeze threshold`;
+            const body = `Temperature at ${Math.round(tempVal)}°F — at or below your freeze threshold (${tempSrc})`;
             await doWebPush(sub, { title: '🧊 Freeze Alert', body, tag: 'temp-threshold', url: '/' });
             await doNtfy(sub.ntfyTopic, '🧊 Freeze Alert', body);
           }
