@@ -29,7 +29,7 @@
       <button class="tab" data-tab="learn">Learn</button>
       <button class="tab" data-tab="settings">Settings</button>
     </nav>
-    <span class="tagline">Open-Meteo · RainViewer</span>
+    <span class="tagline">Open-Meteo · RainViewer · <a href="/conditions" class="tagline-link">Station</a> · <a href="/dashboard" class="tagline-link">Dashboard</a></span>
   </header>
 
   <!-- Loading -->
@@ -485,6 +485,12 @@
   <!-- ── TAB: SETTINGS ── -->
   <div id="tab-settings" class="tab-panel hidden">
     <div class="settings-wrap">
+
+      <div class="settings-section-label">Station</div>
+      <div class="settings-nav-links">
+        <a href="/conditions" class="settings-nav-link">Live Conditions</a>
+        <a href="/dashboard" class="settings-nav-link">Dashboard</a>
+      </div>
 
       <!-- Location search — moved here from header -->
       <div class="settings-section-label">Location</div>
