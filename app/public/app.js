@@ -348,6 +348,7 @@ const state = {
   pwsUrl: localStorage.getItem(STORAGE_KEYS.pwsUrl) || '',
   ambientApiKey: localStorage.getItem(STORAGE_KEYS.ambientApiKey) || '',
   ambientAppKey: localStorage.getItem(STORAGE_KEYS.ambientAppKey) || '',
+  ambientDevice: null,
   pushSub: null,
   hourlyExtended: false,
   hourlyFeelsLike: false,
@@ -1503,6 +1504,9 @@ function renderWeather(data, city) {
 
   show(weatherDiv);
   setTimeout(() => { radarEmbed.refresh && radarEmbed.refresh(); }, 80);
+
+  // Apply station overlay if we have fresh station data
+  if (state.ambientDevice) applyStationOverlay(state.ambientDevice);
 }
 
 function renderDailyForecast(daily) {
@@ -2684,8 +2688,14 @@ if (ambientSaveBtn) {
         state.ambientAppKey = appKey;
         localStorage.setItem(STORAGE_KEYS.ambientApiKey, apiKey);
         localStorage.setItem(STORAGE_KEYS.ambientAppKey, appKey);
+        // Also persist keys server-side so all devices share them
+        fetch('/api/ambient-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey, appKey }),
+        }).catch(() => {});
         const stationName = devices?.[0]?.info?.name || devices?.[0]?.macAddress || 'station';
-        if (ambientStatusEl) { ambientStatusEl.textContent = `✓ Connected to ${stationName}`; show(ambientStatusEl); }
+        if (ambientStatusEl) { ambientStatusEl.textContent = `✓ Connected to ${stationName} — saved for all devices`; show(ambientStatusEl); }
         fetchAmbientStation();
       } else {
         const { error } = await res.json().catch(() => ({}));
@@ -2697,6 +2707,14 @@ if (ambientSaveBtn) {
     ambientSaveBtn.disabled = false;
   });
 }
+
+// On load, check if server already has keys configured (other device saved them)
+fetch('/api/ambient-config').then(r => r.json()).then(({ configured }) => {
+  if (configured && !state.ambientApiKey) {
+    if (ambientStatusEl) { ambientStatusEl.textContent = '✓ Keys configured on server'; show(ambientStatusEl); }
+    fetchAmbientStation();
+  }
+}).catch(() => {});
 
 const pwsUrlInput = document.getElementById('pws-url-input');
 const pwsSaveBtn = document.getElementById('pws-save-btn');
@@ -2859,7 +2877,88 @@ async function fetchAmbientStation() {
   }
 }
 
+function applyStationOverlay(device) {
+  if (!device) return;
+  const data = device.lastData || {};
+  if (!data.dateutc || Date.now() - data.dateutc > 15 * 60 * 1000) return; // stale > 15 min
+
+  const isMetric = state.units !== 'us';
+  const fT = f => f == null ? null : (isMetric ? Math.round((f - 32) * 5 / 9) : Math.round(f));
+  const fS = mph => mph == null ? null : (isMetric ? Math.round(mph * 1.60934) : Math.round(mph));
+
+  const setEl = (id, val) => { if (val == null) return; const el = document.getElementById(id); if (el) el.textContent = val; };
+
+  if (data.tempf != null) {
+    setEl('cur-temp', fT(data.tempf));
+    const panelTemp = document.getElementById('panel-temp');
+    if (panelTemp) panelTemp.textContent = `${fT(data.tempf)}°${tempUnit()}`;
+  }
+
+  if (data.feelsLike != null) {
+    setEl('cur-feels', fT(data.feelsLike));
+    const feelsLine = document.getElementById('feels-line');
+    if (feelsLine) {
+      const label = apparentLabel(data.tempf, data.feelsLike);
+      feelsLine.innerHTML = `${label} <span id="cur-feels">${fT(data.feelsLike)}</span>°${tempUnit()}`;
+    }
+  }
+
+  if (data.humidity != null) {
+    setEl('cur-hum', data.humidity);
+    setEl('hum-feel', humidityFeel(data.humidity));
+  }
+
+  if (data.tempf != null && data.humidity != null) {
+    const tc = (data.tempf - 32) * 5 / 9;
+    const alpha = Math.log(data.humidity / 100) + (17.62 * tc) / (243.12 + tc);
+    const dewC = (243.12 * alpha) / (17.62 - alpha);
+    setEl('cur-dew', isMetric ? Math.round(dewC) : Math.round(dewC * 9 / 5 + 32));
+  }
+
+  if (data.windspeedmph != null) {
+    setEl('cur-wind', fS(data.windspeedmph));
+    const panelWind = document.getElementById('panel-wind-speed');
+    if (panelWind) panelWind.textContent = `${fS(data.windspeedmph)} ${speedUnit()}`;
+  }
+  if (data.winddir != null) {
+    setEl('cur-wind-dir', compassDirFull(data.winddir));
+    const panelDir = document.getElementById('panel-wind-dir');
+    if (panelDir) panelDir.textContent = compassDirFull(data.winddir);
+  }
+  if (data.windgustmph != null) setEl('cur-gust', fS(data.windgustmph));
+
+  // Pressure: Ambient gives inHg, display expects hPa
+  if (data.baromrelin != null) setEl('cur-pres', Math.round(data.baromrelin * 33.8639));
+
+  if (data.uv != null) setEl('cur-uv', data.uv);
+
+  // Rain summary in hero sub-line
+  const rainEl = document.getElementById('cur-precip');
+  if (rainEl && data.dailyrainin != null) {
+    const rainVal = isMetric ? (data.dailyrainin * 25.4).toFixed(1) : data.dailyrainin.toFixed(2);
+    const rainUnit2 = isMetric ? 'mm' : 'in';
+    rainEl.textContent = data.dailyrainin > 0
+      ? `${rainVal} ${rainUnit2} rain today`
+      : 'No rain today';
+  }
+
+  // Wind peek summary
+  const peekEl = document.getElementById('wind-drawer-peek');
+  if (peekEl && data.windspeedmph != null) {
+    peekEl.textContent = `· ${fS(data.windspeedmph)} ${speedUnit()} ${compassDir(data.winddir || 0)} · ${data.humidity ?? '--'}% humidity`;
+  }
+
+  // Station badge
+  const badge = document.getElementById('station-badge');
+  const badgeName = document.getElementById('station-badge-name');
+  if (badge) {
+    if (badgeName) badgeName.textContent = device.info?.name || 'My Station';
+    show(badge);
+  }
+}
+
 function renderAmbientStation(device) {
+  state.ambientDevice = device;
   const data = device?.lastData || {};
   const info = device?.info || {};
   const contentEl = document.getElementById('station-content');
@@ -2934,4 +3033,7 @@ function renderAmbientStation(device) {
   }
 
   if (contentEl) show(contentEl);
+
+  // Update the main conditions display with real station readings
+  if (state.currentWeather) applyStationOverlay(device);
 }

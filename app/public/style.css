@@ -2487,3 +2487,18 @@ body.map-fs #unified-map {
 }
 .station-name { font-weight: 600; font-size: 0.95rem; }
 .station-updated { font-size: 0.75rem; color: var(--ink-light); }
+
+.station-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  letter-spacing: 0.02em;
+}
