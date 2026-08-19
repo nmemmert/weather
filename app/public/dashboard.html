@@ -515,7 +515,10 @@ async function loadHistory(range) {
     const data = await r.json();
     renderCharts(data, range);
     const line = document.getElementById('updatedLine');
-    if (line) line.textContent = `${data.length} readings loaded · fetched ${new Date().toLocaleTimeString()}`;
+    if (line) {
+      const next = new Date(Date.now() + 120000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      line.textContent = `${data.length} readings · updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · next refresh ${next}`;
+    }
   } catch (e) {
     area.innerHTML = `<div class="status error">Failed to load station history. ${e.message}</div>`;
   }
@@ -536,8 +539,9 @@ document.getElementById('refreshBtn').addEventListener('click', () => {
   loadHistory(currentRange);
 });
 
-// Auto-refresh latest every 2 minutes
+// Auto-refresh latest + charts every 2 minutes
 setInterval(updateLatest, 120000);
+setInterval(() => loadHistory(currentRange), 120000);
 
 // ── API key settings ─────────────────────────────────────────────────────────
 async function checkKeyStatus() {
