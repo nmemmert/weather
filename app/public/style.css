@@ -2472,3 +2472,18 @@ body.map-fs #unified-map {
 }
 .mini-remove:hover { color: var(--accent); }
 
+
+/* ── My Station (Ambient Weather) ──────────────────────────────────────────── */
+.station-drawer { margin-top: 1rem; }
+.station-drawer-peek { font-size: 0.8rem; color: var(--ink-light); margin-left: 0.5rem; font-weight: 400; }
+.station-loading { color: var(--ink-light); font-size: 0.9rem; padding: 0.5rem 0; }
+.station-error { color: #e57373; font-size: 0.88rem; padding: 0.4rem 0; }
+.station-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.station-name { font-weight: 600; font-size: 0.95rem; }
+.station-updated { font-size: 0.75rem; color: var(--ink-light); }

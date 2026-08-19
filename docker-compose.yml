@@ -14,6 +14,9 @@ services:
       - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:nate@necloud.us}
+      # Ambient Weather personal station integration
+      - AMBIENT_API_KEY=${AMBIENT_API_KEY:-}
+      - AMBIENT_APP_KEY=${AMBIENT_APP_KEY:-}
       # Optional: how often to poll NWS alerts (ms). Default: 300000 (5 min)
       # - ALERT_POLL_INTERVAL_MS=300000
     volumes:
