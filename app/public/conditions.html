@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Current Conditions</title>
+<meta http-equiv="refresh" content="120">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --ink: #1a1a1a; --ink-light: #5f5649; --paper: #f5f2ec; --paper-dark: #ece7db;
+  --border: #b9ae9b; --accent: #c25a2a; --cool: #2a6b8a;
+  --mono: 'Segoe UI Rounded', 'Trebuchet MS', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --ink: #ece7dc; --ink-light: #beb399; --paper: #191510; --paper-dark: #201c16; --border: #3a342a; --accent: #e07848; --cool: #5ab0d8; }
+}
+html, body { min-height: 100%; background: var(--paper); color: var(--ink); font-family: var(--mono); }
+.page { max-width: 700px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+h1 { font-size: 1.3rem; margin-bottom: 0.2rem; }
+.sub { font-size: 0.85rem; color: var(--ink-light); margin-bottom: 2rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem; }
+.tile { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem; }
+.tile-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-light); margin-bottom: 0.2rem; }
+.tile-val { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.tile-unit { font-size: 0.75rem; color: var(--ink-light); margin-top: 0.1rem; }
+.offline { text-align: center; padding: 3rem; color: var(--ink-light); }
+.updated { font-size: 0.75rem; color: var(--ink-light); margin-top: 1.5rem; }
+.wind-dir { font-size: 1rem; color: var(--ink-light); margin-left: 0.25rem; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Current Conditions</h1>
+  <p class="sub" id="stationSub">Personal weather station</p>
+  <div class="grid" id="grid">
+    <div class="offline">Loading…</div>
+  </div>
+  <p class="updated" id="updated"></p>
+</div>
+<script>
+function cardinal(deg) {
+  return ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][Math.round(deg / 22.5) % 16];
+}
+function tile(label, val, unit) {
+  return `<div class="tile"><div class="tile-label">${label}</div><div class="tile-val">${val}</div><div class="tile-unit">${unit}</div></div>`;
+}
+async function load() {
+  try {
+    const r = await fetch('/api/conditions/public');
+    if (!r.ok) throw new Error('unavailable');
+    const d = await r.json();
+    if (!d) { document.getElementById('grid').innerHTML = '<div class="offline">No data yet.</div>'; return; }
+    const fmt = (v, digits=1) => v != null ? (+v).toFixed(digits) : '—';
+    const windLabel = d.winddir != null ? `Wind <span class="wind-dir">${cardinal(d.winddir)}</span>` : 'Wind';
+    document.getElementById('grid').innerHTML = [
+      tile('Temperature', fmt(d.tempf), '°F'),
+      tile('Feels Like', fmt(d.feelsLike ?? d.tempf), '°F'),
+      tile('Humidity', fmt(d.humidity, 0), '%'),
+      tile('Dew Point', fmt(d.dewPoint), '°F'),
+      tile(windLabel, fmt(d.windspeedmph), 'mph'),
+      tile('Wind Gust', fmt(d.windgustmph), 'mph'),
+      tile('Pressure', fmt(d.baromrelin, 2), 'inHg'),
+      tile('Rain Today', fmt(d.dailyrainin, 2), 'in'),
+      tile('Rain Rate', fmt(d.rainratein, 2), 'in/hr'),
+      tile('UV Index', fmt(d.uv, 0), ''),
+      tile('Solar', fmt(d.solarradiation, 0), 'W/m²'),
+    ].join('');
+    if (d.dateutc) document.getElementById('updated').textContent = 'Updated ' + new Date(d.dateutc).toLocaleTimeString();
+  } catch {
+    document.getElementById('grid').innerHTML = '<div class="offline">Station data unavailable.</div>';
+  }
+}
+load();
+</script>
+</body>
+</html>

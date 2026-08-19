@@ -782,6 +782,14 @@ async function alertWatcherCron() {
               await doNtfy(sub.ntfyTopic, '😷 Air Quality Alert', body);
             }
           }
+          // ── Rain rate (station only) ─────────────────────────────────────────
+          if (sub.thresholds.rainRate && stationObs?.rainratein != null && stationObs.rainratein > sub.thresholds.rainRate && !alerted.rainRate) {
+            alerted.rainRate = true;
+            const body = `Rain rate at ${stationObs.rainratein.toFixed(2)} in/hr — your threshold is ${sub.thresholds.rainRate} in/hr`;
+            await doWebPush(sub, { title: '🌧 Heavy Rain Alert', body, tag: 'rain-threshold', url: '/' });
+            await doNtfy(sub.ntfyTopic, '🌧 Heavy Rain Alert', body, 'high');
+          }
+
           sub.lastThresholdAlerted = alerted;
           saveSubs();
         }
@@ -974,6 +982,166 @@ app.post('/api/station/backfill', requireDashboardAuth, (req, res) => {
 
 app.get('/api/station/backfill/status', requireDashboardAuth, (_req, res) => {
   res.json(backfillState);
+});
+
+// ── Station analytics ─────────────────────────────────────────────────────────
+
+// Records — scan all JSONL, cache 1h
+let recordsCache = null;
+let recordsCacheAt = 0;
+
+function computeStationRecords() {
+  let files;
+  try { files = fs.readdirSync(STATION_DIR).filter(f => f.endsWith('.jsonl')).sort(); } catch { return null; }
+  if (!files.length) return null;
+  const rec = {
+    highTemp: null, highTempDate: null, lowTemp: null, lowTempDate: null,
+    highGust: null, highGustDate: null,
+    highRainRate: null, highRainRateDate: null, highDailyRain: null, highDailyRainDate: null,
+    highUV: null, highUVDate: null, highSolar: null, highSolarDate: null,
+    highPressure: null, highPressureDate: null, lowPressure: null, lowPressureDate: null,
+    highHumidity: null, highHumidityDate: null, lowHumidity: null, lowHumidityDate: null,
+    totalReadings: 0, firstReading: null, lastReading: null,
+  };
+  for (const file of files) {
+    try {
+      const lines = fs.readFileSync(path.join(STATION_DIR, file), 'utf8').split('\n').filter(Boolean);
+      for (const line of lines) {
+        try {
+          const r = JSON.parse(line);
+          if (!r.dateutc) continue;
+          rec.totalReadings++;
+          if (!rec.firstReading || r.dateutc < rec.firstReading) rec.firstReading = r.dateutc;
+          if (!rec.lastReading || r.dateutc > rec.lastReading) rec.lastReading = r.dateutc;
+          if (r.tempf != null) {
+            if (rec.highTemp == null || r.tempf > rec.highTemp) { rec.highTemp = r.tempf; rec.highTempDate = r.dateutc; }
+            if (rec.lowTemp == null || r.tempf < rec.lowTemp) { rec.lowTemp = r.tempf; rec.lowTempDate = r.dateutc; }
+          }
+          if (r.windgustmph != null && (rec.highGust == null || r.windgustmph > rec.highGust)) { rec.highGust = r.windgustmph; rec.highGustDate = r.dateutc; }
+          if (r.rainratein != null && (rec.highRainRate == null || r.rainratein > rec.highRainRate)) { rec.highRainRate = r.rainratein; rec.highRainRateDate = r.dateutc; }
+          if (r.dailyrainin != null && (rec.highDailyRain == null || r.dailyrainin > rec.highDailyRain)) { rec.highDailyRain = r.dailyrainin; rec.highDailyRainDate = r.dateutc; }
+          if (r.uv != null && (rec.highUV == null || r.uv > rec.highUV)) { rec.highUV = r.uv; rec.highUVDate = r.dateutc; }
+          if (r.solarradiation != null && (rec.highSolar == null || r.solarradiation > rec.highSolar)) { rec.highSolar = r.solarradiation; rec.highSolarDate = r.dateutc; }
+          if (r.baromrelin != null) {
+            if (rec.highPressure == null || r.baromrelin > rec.highPressure) { rec.highPressure = r.baromrelin; rec.highPressureDate = r.dateutc; }
+            if (rec.lowPressure == null || r.baromrelin < rec.lowPressure) { rec.lowPressure = r.baromrelin; rec.lowPressureDate = r.dateutc; }
+          }
+          if (r.humidity != null) {
+            if (rec.highHumidity == null || r.humidity > rec.highHumidity) { rec.highHumidity = r.humidity; rec.highHumidityDate = r.dateutc; }
+            if (rec.lowHumidity == null || r.humidity < rec.lowHumidity) { rec.lowHumidity = r.humidity; rec.lowHumidityDate = r.dateutc; }
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+  return rec;
+}
+
+app.get('/api/station/records', requireDashboardAuth, (_req, res) => {
+  if (recordsCache && Date.now() - recordsCacheAt < 3600000) return res.json(recordsCache);
+  recordsCache = computeStationRecords();
+  recordsCacheAt = Date.now();
+  res.json(recordsCache);
+});
+
+// Rain totals — max dailyrainin per calendar day, summed
+app.get('/api/station/rain-totals', requireDashboardAuth, (_req, res) => {
+  const now = Date.now();
+  const ytdCutoff = new Date(new Date().getFullYear(), 0, 1).getTime();
+  function sumDailyRain(readings) {
+    const byDay = {};
+    for (const r of readings) {
+      if (r.dailyrainin == null || !r.dateutc) continue;
+      const d = stationDateKey(r.dateutc);
+      if (byDay[d] == null || r.dailyrainin > byDay[d]) byDay[d] = r.dailyrainin;
+    }
+    return +Object.values(byDay).reduce((a, b) => a + b, 0).toFixed(2);
+  }
+  res.json({
+    rain7d: sumDailyRain(loadStationReadings(7 * 86400000)),
+    rain30d: sumDailyRain(loadStationReadings(30 * 86400000)),
+    rainYTD: sumDailyRain(loadStationReadings(now - ytdCutoff)),
+  });
+});
+
+// Heating/cooling degree days
+app.get('/api/station/degree-days', requireDashboardAuth, (req, res) => {
+  const base = parseFloat(req.query.base || '65');
+  const rangeMs = Math.min(parseInt(req.query.rangeMs || String(30 * 86400000)), 365 * 86400000);
+  const readings = loadStationReadings(rangeMs);
+  const byDay = {};
+  for (const r of readings) {
+    if (r.tempf == null || !r.dateutc) continue;
+    const d = stationDateKey(r.dateutc);
+    if (!byDay[d]) byDay[d] = [];
+    byDay[d].push(r.tempf);
+  }
+  let hdd = 0, cdd = 0;
+  for (const temps of Object.values(byDay)) {
+    const avg = temps.reduce((a, b) => a + b, 0) / temps.length;
+    hdd += Math.max(0, base - avg);
+    cdd += Math.max(0, avg - base);
+  }
+  res.json({ hdd: +hdd.toFixed(1), cdd: +cdd.toFixed(1), base, days: Object.keys(byDay).length });
+});
+
+// CSV export
+const RANGE_MS_MAP = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000, '30d': 2592000000, '90d': 7776000000, '1y': 31536000000, '2y': 63072000000, '3y': 94608000000 };
+app.get('/api/station/export.csv', requireDashboardAuth, (req, res) => {
+  const range = req.query.range || '30d';
+  const readings = loadStationReadings(RANGE_MS_MAP[range] || RANGE_MS_MAP['30d']);
+  const cols = ['date','tempf','feelsLike','humidity','dewPoint','windspeedmph','windgustmph','winddir','baromrelin','baromabsin','rainratein','dailyrainin','weeklyrainin','monthlyrainin','uv','solarradiation','battout'];
+  const header = cols.join(',');
+  const rows = readings.map(r => cols.map(c => {
+    if (c === 'date') return new Date(r.dateutc).toISOString();
+    return r[c] == null ? '' : r[c];
+  }).join(','));
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="station-${range}-${new Date().toISOString().slice(0,10)}.csv"`);
+  res.send([header, ...rows].join('\n'));
+});
+
+// Year-over-year: current range + same range 1 year prior (timestamps shifted forward 1yr for chart overlay)
+app.get('/api/station/yoy', requireDashboardAuth, (req, res) => {
+  const rangeMs = RANGE_MS_MAP[req.query.range] || RANGE_MS_MAP['1y'];
+  const YEAR_MS = 365.25 * 86400000;
+  const current = loadStationReadings(rangeMs);
+  const priorEnd = Date.now() - YEAR_MS;
+  const prior = loadStationReadings(rangeMs + YEAR_MS).filter(r => r.dateutc >= priorEnd - rangeMs && r.dateutc <= priorEnd);
+  const priorShifted = prior.map(r => ({ dateutc: Math.round(r.dateutc + YEAR_MS), tempf: r.tempf, humidity: r.humidity, windspeedmph: r.windspeedmph, baromrelin: r.baromrelin }));
+  res.json({ current: current.map(r => ({ dateutc: r.dateutc, tempf: r.tempf, humidity: r.humidity, windspeedmph: r.windspeedmph, baromrelin: r.baromrelin })), prior: priorShifted });
+});
+
+// Anomaly — hourly baseline from all historical data
+app.get('/api/station/anomaly', requireDashboardAuth, (_req, res) => {
+  const all = loadStationReadings(365 * 86400000);
+  if (all.length < 200) return res.json({ available: false });
+  const byHour = Array.from({ length: 24 }, () => []);
+  for (const r of all) {
+    if (r.tempf == null) continue;
+    byHour[new Date(r.dateutc).getHours()].push(r.tempf);
+  }
+  const hourStats = byHour.map(temps => {
+    if (temps.length < 10) return null;
+    const mean = temps.reduce((a, b) => a + b) / temps.length;
+    const stddev = Math.sqrt(temps.reduce((a, b) => a + (b - mean) ** 2, 0) / temps.length);
+    return { mean: +mean.toFixed(1), stddev: +stddev.toFixed(1) };
+  });
+  const last = all[all.length - 1];
+  const h = new Date(last.dateutc).getHours();
+  const stat = hourStats[h];
+  const z = (stat && stat.stddev > 0) ? (last.tempf - stat.mean) / stat.stddev : 0;
+  res.json({ available: true, hourStats, anomaly: z > 2 ? 'above' : z < -2 ? 'below' : 'normal', currentTemp: last.tempf, currentHour: h, mean: stat?.mean, stddev: stat?.stddev });
+});
+
+// Public conditions page + API (no auth required)
+app.get('/conditions', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'conditions.html'));
+});
+app.get('/api/conditions/public', (_req, res) => {
+  if (!ambientServerConfig.apiKey) return res.status(503).json({ error: 'Not configured' });
+  const cached = ambientCaches.get(ambientServerConfig.apiKey);
+  res.json(cached?.data?.[0]?.lastData || null);
 });
 
 app.listen(PORT, () => console.log(`Weather app running on port ${PORT}`));

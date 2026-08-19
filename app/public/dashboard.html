@@ -91,6 +91,18 @@ a { color: var(--cool); text-decoration: none; }
 .keys-status.missing { color: var(--accent); }
 .keys-hint { font-size: 0.78rem; color: var(--ink-light); margin-top: 1rem; line-height: 1.5; }
 .settings-divider { border: none; border-top: 1px solid var(--border); margin: 1.25rem 0; }
+/* Records */
+.records-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.6rem; }
+.record-item { background: var(--paper); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.85rem; }
+.record-label { font-size: 0.72rem; color: var(--ink-light); text-transform: uppercase; letter-spacing: 0.05em; }
+.record-val { font-size: 1.15rem; font-weight: 700; margin: 0.1rem 0; }
+.record-date { font-size: 0.72rem; color: var(--ink-light); }
+/* Anomaly tile */
+.stat.anomaly-above { border-color: var(--accent); }
+.stat.anomaly-below { border-color: var(--cool); }
+/* Export link */
+.export-link { display: inline-block; padding: 0.45rem 1.2rem; background: var(--cool); color: #fff !important; border-radius: 8px; font-size: 0.9rem; font-weight: 600; text-decoration: none !important; }
+.export-link:hover { opacity: 0.88; }
 .backfill-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .backfill-controls { display: flex; gap: 0.5rem; align-items: center; flex-shrink: 0; }
 .backfill-controls select { padding: 0.45rem 0.6rem; background: var(--paper); border: 1px solid var(--border); border-radius: 8px; color: var(--ink); font-family: var(--mono); font-size: 0.85rem; }
@@ -122,12 +134,30 @@ a { color: var(--cool); text-decoration: none; }
     <div class="stat"><div class="stat-label">Dew Point</div><div class="stat-val" id="sDew">—</div><div class="stat-unit">°F</div></div>
     <div class="stat"><div class="stat-label">Wind</div><div class="stat-val" id="sWind">—</div><div class="stat-unit">mph</div></div>
     <div class="stat"><div class="stat-label">Wind Gust</div><div class="stat-val" id="sGust">—</div><div class="stat-unit">mph</div></div>
-    <div class="stat"><div class="stat-label">Pressure</div><div class="stat-val" id="sPres">—</div><div class="stat-unit">inHg</div></div>
+    <div class="stat">
+      <div class="stat-label">Pressure</div>
+      <div class="stat-val" id="sPres">—</div>
+      <div class="stat-unit">inHg &nbsp;<span id="sTrend" style="font-size:1rem;"></span></div>
+    </div>
     <div class="stat"><div class="stat-label">Rain Today</div><div class="stat-val" id="sRain">—</div><div class="stat-unit">in</div></div>
     <div class="stat"><div class="stat-label">Rain Rate</div><div class="stat-val" id="sRainRate">—</div><div class="stat-unit">in/hr</div></div>
     <div class="stat"><div class="stat-label">UV Index</div><div class="stat-val" id="sUV">—</div><div class="stat-unit"></div></div>
     <div class="stat"><div class="stat-label">Solar Rad.</div><div class="stat-val" id="sSolar">—</div><div class="stat-unit">W/m²</div></div>
     <div class="stat"><div class="stat-label">Battery</div><div class="stat-val" id="sBatt">—</div><div class="stat-unit"></div></div>
+  </div>
+
+  <!-- Rain totals + degree days -->
+  <div class="stats" id="extStats">
+    <div class="stat"><div class="stat-label">Rain 7d</div><div class="stat-val" id="sRain7d">—</div><div class="stat-unit">in</div></div>
+    <div class="stat"><div class="stat-label">Rain 30d</div><div class="stat-val" id="sRain30d">—</div><div class="stat-unit">in</div></div>
+    <div class="stat"><div class="stat-label">Rain YTD</div><div class="stat-val" id="sRainYTD">—</div><div class="stat-unit">in</div></div>
+    <div class="stat"><div class="stat-label">Heating DD</div><div class="stat-val" id="sHDD">—</div><div class="stat-unit">this month</div></div>
+    <div class="stat"><div class="stat-label">Cooling DD</div><div class="stat-val" id="sCDD">—</div><div class="stat-unit">this month</div></div>
+    <div class="stat" id="sAnomalyTile" style="display:none">
+      <div class="stat-label">Temp vs Normal</div>
+      <div class="stat-val" id="sAnomaly">—</div>
+      <div class="stat-unit" id="sAnomalyNote"></div>
+    </div>
   </div>
 
   <!-- Range selector -->
@@ -143,6 +173,7 @@ a { color: var(--cool); text-decoration: none; }
     <button class="range-btn" data-range="2y">2y</button>
     <button class="range-btn" data-range="3y">3y</button>
     <button class="refresh-btn" id="refreshBtn">↻ Refresh</button>
+    <button class="range-btn" id="yoyBtn" style="display:none" title="Overlay same period from 1 year ago">YoY</button>
   </div>
   <div class="updated" id="updatedLine"></div>
 
@@ -150,6 +181,14 @@ a { color: var(--cool); text-decoration: none; }
   <div id="chartsArea">
     <div class="status" id="loadingMsg">Loading history…</div>
   </div>
+
+  <!-- Records -->
+  <details class="settings-panel" id="recordsPanel" style="margin-top:1.5rem">
+    <summary>All-Time Station Records</summary>
+    <div class="settings-body" id="recordsBody">
+      <div class="status">Loading records…</div>
+    </div>
+  </details>
 
   <!-- Settings -->
   <details class="settings-panel" id="settingsPanel">
@@ -171,6 +210,26 @@ a { color: var(--cool); text-decoration: none; }
         <span id="saveMsg" class="save-msg"></span>
       </div>
       <p class="keys-hint">Find these at <strong>ambientweather.net → My Account → API Keys</strong>. Keys are stored on the server only — never exposed to the browser.</p>
+
+      <hr class="settings-divider">
+
+      <div class="backfill-header" style="margin-bottom:0.75rem">
+        <div>
+          <div class="chart-title" style="margin-bottom:0.25rem">Export Data</div>
+          <p class="keys-hint" style="margin:0">Download your station history as a CSV spreadsheet.</p>
+        </div>
+        <div class="backfill-controls">
+          <select id="exportRange">
+            <option value="7d">7 days</option>
+            <option value="30d" selected>30 days</option>
+            <option value="90d">90 days</option>
+            <option value="1y">1 year</option>
+            <option value="2y">2 years</option>
+            <option value="3y">3 years</option>
+          </select>
+          <a id="exportBtn" class="export-link" href="#" target="_blank">Download CSV</a>
+        </div>
+      </div>
 
       <hr class="settings-divider">
 
@@ -370,7 +429,7 @@ function drawWindRose(canvas, readings) {
 }
 
 // ── Render charts ────────────────────────────────────────────────────────────
-function renderCharts(readings, range) {
+function renderCharts(readings, range, yoy = null) {
   const area = document.getElementById('chartsArea');
   if (!readings.length) {
     area.innerHTML = '<div class="status">No recorded data for this range yet. Data is collected every minute while the station is active.</div>';
@@ -449,10 +508,15 @@ function renderCharts(readings, range) {
     </div>
   `;
 
-  makeChart('cTemp', 'line',
-    [lineDataset('Temp °F', field(pts, 'tempf'), c.accent),
-     lineDataset('Feels Like', field(pts, 'feelsLike'), c.cool, true)],
-    lbls, '°F');
+  const tempDatasets = [
+    lineDataset('Temp °F', field(pts, 'tempf'), c.accent),
+    lineDataset('Feels Like', field(pts, 'feelsLike'), c.cool, true),
+  ];
+  if (yoy?.prior?.length) {
+    const yoyPts = yoy.prior.length > 720 ? yoy.prior.filter((_, i) => i % Math.ceil(yoy.prior.length / 720) === 0) : yoy.prior;
+    tempDatasets.push({ ...lineDataset('Last Year', yoyPts.map(r => r.tempf), c.accent + '55', true), borderWidth: 1 });
+  }
+  makeChart('cTemp', 'line', tempDatasets, lbls, '°F');
 
   makeChart('cHum', 'line',
     [lineDataset('Humidity %', field(pts, 'humidity'), c.cool),
@@ -546,7 +610,7 @@ async function loadHistory(range) {
     if (r.status === 401) { location.href = '/dashboard/login'; return; }
     if (!r.ok) throw new Error('Failed');
     const data = await r.json();
-    renderCharts(data, range);
+    renderCharts(data, range, yoyEnabled ? yoyData : null);
     const line = document.getElementById('updatedLine');
     if (line) {
       const next = new Date(Date.now() + 120000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -558,11 +622,13 @@ async function loadHistory(range) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-document.querySelectorAll('.range-btn').forEach(btn => {
+document.querySelectorAll('.range-btn[data-range]').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.range-btn[data-range]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentRange = btn.dataset.range;
+    yoyData = null; yoyEnabled = false; yoyBtn.classList.remove('active');
+    updateYoyVisibility(currentRange);
     loadHistory(currentRange);
   });
 });
@@ -676,9 +742,144 @@ async function pollBackfill() {
 
 document.getElementById('backfillBtn').addEventListener('click', startBackfill);
 
+// ── Pressure trend ────────────────────────────────────────────────────────────
+async function updatePressureTrend() {
+  try {
+    const r = await fetch('/api/station/history?range=6h');
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data.length < 2) return;
+    const recent = data[data.length - 1]?.baromrelin;
+    const older = data[Math.max(0, data.length - 19)]?.baromrelin; // ~3h ago (at 1/min, 18 readings = ~18min... adjust for actual density)
+    const threeHoursAgo = Date.now() - 3 * 3600000;
+    const baseline = data.find(r => r.dateutc >= threeHoursAgo)?.baromrelin;
+    if (recent == null || baseline == null) return;
+    const diff = recent - baseline;
+    const el = document.getElementById('sTrend');
+    if (!el) return;
+    if (diff > 0.02) { el.textContent = '↑'; el.title = `Rising +${diff.toFixed(3)} inHg in 3h`; el.style.color = 'var(--cool)'; }
+    else if (diff < -0.02) { el.textContent = '↓'; el.title = `Falling ${diff.toFixed(3)} inHg in 3h`; el.style.color = 'var(--accent)'; }
+    else { el.textContent = '→'; el.title = `Steady (${diff > 0 ? '+' : ''}${diff.toFixed(3)} inHg in 3h)`; el.style.color = 'var(--ink-light)'; }
+  } catch {}
+}
+
+// ── Rain totals + degree days ─────────────────────────────────────────────────
+async function updateExtStats() {
+  try {
+    const [rt, dd, an] = await Promise.all([
+      fetch('/api/station/rain-totals').then(r => r.ok ? r.json() : null),
+      fetch('/api/station/degree-days?rangeMs=' + (30 * 86400000)).then(r => r.ok ? r.json() : null),
+      fetch('/api/station/anomaly').then(r => r.ok ? r.json() : null),
+    ]);
+    if (rt) {
+      const s = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v != null ? v : '—'; };
+      s('sRain7d', rt.rain7d);
+      s('sRain30d', rt.rain30d);
+      s('sRainYTD', rt.rainYTD);
+    }
+    if (dd) {
+      document.getElementById('sHDD').textContent = dd.hdd;
+      document.getElementById('sCDD').textContent = dd.cdd;
+    }
+    if (an?.available) {
+      const tile = document.getElementById('sAnomalyTile');
+      tile.style.display = '';
+      const diff = an.currentTemp != null && an.mean != null ? (an.currentTemp - an.mean) : null;
+      document.getElementById('sAnomaly').textContent = an.anomaly === 'above' ? 'Above Normal' : an.anomaly === 'below' ? 'Below Normal' : 'Near Normal';
+      document.getElementById('sAnomalyNote').textContent = diff != null ? `${diff > 0 ? '+' : ''}${diff.toFixed(1)}°F vs avg` : '';
+      tile.className = 'stat' + (an.anomaly === 'above' ? ' anomaly-above' : an.anomaly === 'below' ? ' anomaly-below' : '');
+    }
+  } catch {}
+}
+
+// ── Records section ───────────────────────────────────────────────────────────
+function fmtDate(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+async function loadRecords() {
+  const panel = document.getElementById('recordsPanel');
+  if (!panel) return;
+  panel.addEventListener('toggle', async () => {
+    if (!panel.open) return;
+    const body = document.getElementById('recordsBody');
+    if (body.querySelector('.records-grid')) return; // already loaded
+    try {
+      const r = await fetch('/api/station/records');
+      if (!r.ok) { body.innerHTML = '<div class="status">No records yet.</div>'; return; }
+      const d = await r.json();
+      if (!d) { body.innerHTML = '<div class="status">No data recorded yet.</div>'; return; }
+      const since = d.firstReading ? `${d.totalReadings.toLocaleString()} readings since ${fmtDate(d.firstReading)}` : '';
+      body.innerHTML = `
+        <p style="font-size:0.8rem;color:var(--ink-light);margin-bottom:0.75rem">${since}</p>
+        <div class="records-grid">
+          <div class="record-item"><div class="record-label">Hottest</div><div class="record-val">${d.highTemp != null ? d.highTemp.toFixed(1) + '°F' : '—'}</div><div class="record-date">${fmtDate(d.highTempDate)}</div></div>
+          <div class="record-item"><div class="record-label">Coldest</div><div class="record-val">${d.lowTemp != null ? d.lowTemp.toFixed(1) + '°F' : '—'}</div><div class="record-date">${fmtDate(d.lowTempDate)}</div></div>
+          <div class="record-item"><div class="record-label">Highest Gust</div><div class="record-val">${d.highGust != null ? d.highGust.toFixed(1) + ' mph' : '—'}</div><div class="record-date">${fmtDate(d.highGustDate)}</div></div>
+          <div class="record-item"><div class="record-label">Highest Rain Rate</div><div class="record-val">${d.highRainRate != null ? d.highRainRate.toFixed(2) + ' in/hr' : '—'}</div><div class="record-date">${fmtDate(d.highRainRateDate)}</div></div>
+          <div class="record-item"><div class="record-label">Wettest Day</div><div class="record-val">${d.highDailyRain != null ? d.highDailyRain.toFixed(2) + '"' : '—'}</div><div class="record-date">${fmtDate(d.highDailyRainDate)}</div></div>
+          <div class="record-item"><div class="record-label">Highest UV</div><div class="record-val">${d.highUV != null ? d.highUV.toFixed(0) : '—'}</div><div class="record-date">${fmtDate(d.highUVDate)}</div></div>
+          <div class="record-item"><div class="record-label">Peak Solar</div><div class="record-val">${d.highSolar != null ? d.highSolar.toFixed(0) + ' W/m²' : '—'}</div><div class="record-date">${fmtDate(d.highSolarDate)}</div></div>
+          <div class="record-item"><div class="record-label">Highest Pressure</div><div class="record-val">${d.highPressure != null ? d.highPressure.toFixed(2) + ' inHg' : '—'}</div><div class="record-date">${fmtDate(d.highPressureDate)}</div></div>
+          <div class="record-item"><div class="record-label">Lowest Pressure</div><div class="record-val">${d.lowPressure != null ? d.lowPressure.toFixed(2) + ' inHg' : '—'}</div><div class="record-date">${fmtDate(d.lowPressureDate)}</div></div>
+          <div class="record-item"><div class="record-label">Highest Humidity</div><div class="record-val">${d.highHumidity != null ? d.highHumidity + '%' : '—'}</div><div class="record-date">${fmtDate(d.highHumidityDate)}</div></div>
+          <div class="record-item"><div class="record-label">Lowest Humidity</div><div class="record-val">${d.lowHumidity != null ? d.lowHumidity + '%' : '—'}</div><div class="record-date">${fmtDate(d.lowHumidityDate)}</div></div>
+        </div>`;
+    } catch { document.getElementById('recordsBody').innerHTML = '<div class="status error">Failed to load records.</div>'; }
+  }, { once: false });
+}
+
+// ── Year-over-year ────────────────────────────────────────────────────────────
+let yoyEnabled = false;
+let yoyData = null;
+
+const yoyBtn = document.getElementById('yoyBtn');
+yoyBtn.addEventListener('click', async () => {
+  yoyEnabled = !yoyEnabled;
+  yoyBtn.classList.toggle('active', yoyEnabled);
+  if (yoyEnabled && !yoyData) {
+    yoyBtn.textContent = '…';
+    try {
+      const r = await fetch(`/api/station/yoy?range=${currentRange}`);
+      yoyData = r.ok ? await r.json() : null;
+    } catch {}
+    yoyBtn.textContent = 'YoY';
+  }
+  loadHistory(currentRange);
+});
+
+// Show YoY button only for long ranges
+function updateYoyVisibility(range) {
+  const longRange = ['1y','2y','3y'].includes(range);
+  yoyBtn.style.display = longRange ? '' : 'none';
+  if (!longRange) { yoyEnabled = false; yoyData = null; yoyBtn.classList.remove('active'); }
+}
+
+// Patch loadHistory to pass yoyData to renderCharts
+const _origLoadHistory = loadHistory;
+// Override renderCharts to accept yoy
+const _origRenderCharts = renderCharts;
+
+// ── CSV Export ────────────────────────────────────────────────────────────────
+function updateExportLink() {
+  const sel = document.getElementById('exportRange');
+  const btn = document.getElementById('exportBtn');
+  if (sel && btn) btn.href = `/api/station/export.csv?range=${sel.value}`;
+}
+document.getElementById('exportRange')?.addEventListener('change', updateExportLink);
+updateExportLink();
+
+// ── Init all new features ─────────────────────────────────────────────────────
 updateLatest();
+updatePressureTrend();
+updateExtStats();
+loadRecords();
 loadHistory(currentRange);
 checkKeyStatus();
+
+setInterval(updatePressureTrend, 120000);
+setInterval(updateExtStats, 300000);
 </script>
 </body>
 </html>
