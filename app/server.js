@@ -441,10 +441,39 @@ app.get('/api/spc/reports', async (_req, res) => {
 });
 
 // ── Ambient Weather personal station ─────────────────────────────────────────
-const ambientCaches = new Map(); // keyed by apiKey so each user's cache is independent
+const AMBIENT_CONFIG_FILE = path.join(DATA_DIR, 'ambient-config.json');
+let ambientServerConfig = { apiKey: '', appKey: '' };
+try {
+  if (fs.existsSync(AMBIENT_CONFIG_FILE)) {
+    ambientServerConfig = JSON.parse(fs.readFileSync(AMBIENT_CONFIG_FILE, 'utf8'));
+  }
+} catch {}
+
+function saveAmbientConfig() {
+  try { fs.writeFileSync(AMBIENT_CONFIG_FILE, JSON.stringify(ambientServerConfig)); } catch {}
+}
+
+const ambientCaches = new Map();
+
+// Save keys server-side so all devices share them
+app.post('/api/ambient-config', (req, res) => {
+  const { apiKey, appKey } = req.body || {};
+  if (!apiKey || !appKey) return res.status(400).json({ error: 'apiKey and appKey required' });
+  ambientServerConfig = { apiKey, appKey };
+  saveAmbientConfig();
+  res.json({ ok: true });
+});
+
+// Return whether server-side keys exist (never expose the actual keys)
+app.get('/api/ambient-config', (_req, res) => {
+  const hasKeys = !!(ambientServerConfig.apiKey && ambientServerConfig.appKey);
+  res.json({ configured: hasKeys });
+});
+
 app.get('/api/ambient', async (req, res) => {
-  const apiKey = req.query.apiKey || process.env.AMBIENT_API_KEY;
-  const appKey = req.query.appKey || process.env.AMBIENT_APP_KEY;
+  // Priority: query params (client override) → server-saved → env vars
+  const apiKey = req.query.apiKey || ambientServerConfig.apiKey || process.env.AMBIENT_API_KEY;
+  const appKey = req.query.appKey || ambientServerConfig.appKey || process.env.AMBIENT_APP_KEY;
   if (!apiKey || !appKey) return res.status(503).json({ error: 'Ambient Weather keys not configured' });
 
   const cacheKey = apiKey;
