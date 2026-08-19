@@ -873,4 +873,107 @@ app.get('/api/station/latest', requireDashboardAuth, async (req, res) => {
   res.json(null);
 });
 
+// ── Ambient historical backfill ───────────────────────────────────────────────
+let backfillState = { running: false, done: 0, total: 0, inserted: 0, error: null };
+
+async function runBackfill(daysBack) {
+  const apiKey = ambientServerConfig.apiKey;
+  const appKey = ambientServerConfig.appKey;
+  if (!apiKey || !appKey) {
+    backfillState = { running: false, done: 0, total: 0, inserted: 0, error: 'No API keys configured' };
+    return;
+  }
+
+  // Get device MAC address
+  let mac;
+  try {
+    const r = await fetchWithRetry(
+      `https://rt.ambientweather.net/v1/devices?apiKey=${encodeURIComponent(apiKey)}&applicationKey=${encodeURIComponent(appKey)}`,
+      { attempts: 3, timeoutMs: 15000 }
+    );
+    const devices = await r.json();
+    mac = devices?.[0]?.macAddress;
+  } catch (e) {
+    backfillState = { running: false, done: 0, total: 0, inserted: 0, error: `Device fetch failed: ${e.message}` };
+    return;
+  }
+
+  if (!mac) {
+    backfillState = { running: false, done: 0, total: 0, inserted: 0, error: 'No device found for these keys' };
+    return;
+  }
+
+  const cutoff = Date.now() - daysBack * 86400000;
+  backfillState = { running: true, done: 0, total: daysBack, inserted: 0, error: null };
+
+  // Per-day cache of existing dateutc values so we don't write duplicates
+  const existingByDay = new Map();
+  function getExisting(day) {
+    if (existingByDay.has(day)) return existingByDay.get(day);
+    const set = new Set();
+    try {
+      const lines = fs.readFileSync(path.join(STATION_DIR, `${day}.jsonl`), 'utf8').split('\n').filter(Boolean);
+      for (const l of lines) { try { set.add(JSON.parse(l).dateutc); } catch {} }
+    } catch {}
+    existingByDay.set(day, set);
+    return set;
+  }
+
+  let endDate = Date.now();
+  let inserted = 0;
+
+  while (endDate > cutoff) {
+    await new Promise(r => setTimeout(r, 1100)); // respect 1 req/sec rate limit
+    try {
+      const url = `https://rt.ambientweather.net/v1/devices/${encodeURIComponent(mac)}?apiKey=${encodeURIComponent(apiKey)}&applicationKey=${encodeURIComponent(appKey)}&limit=288&endDate=${endDate}`;
+      const r = await fetchWithRetry(url, { attempts: 2, timeoutMs: 15000 });
+      const records = await r.json();
+
+      if (!Array.isArray(records) || records.length === 0) break;
+
+      let oldest = Infinity;
+      for (const rec of records) {
+        if (!rec.dateutc) continue;
+        if (rec.dateutc < oldest) oldest = rec.dateutc;
+        if (rec.dateutc < cutoff) continue;
+        const day = stationDateKey(rec.dateutc);
+        const existing = getExisting(day);
+        if (!existing.has(rec.dateutc)) {
+          fs.appendFileSync(path.join(STATION_DIR, `${day}.jsonl`), JSON.stringify(rec) + '\n');
+          existing.add(rec.dateutc);
+          inserted++;
+        }
+      }
+
+      backfillState.done = Math.min(daysBack, Math.ceil((Date.now() - oldest) / 86400000));
+      backfillState.inserted = inserted;
+
+      if (records.length < 288 || oldest <= cutoff) break;
+      endDate = oldest - 1;
+    } catch (e) {
+      backfillState.error = e.message;
+      break;
+    }
+  }
+
+  backfillState.running = false;
+  backfillState.done = daysBack;
+  backfillState.inserted = inserted;
+  console.log(`[backfill] complete — inserted ${inserted} records`);
+}
+
+app.post('/api/station/backfill', requireDashboardAuth, (req, res) => {
+  if (backfillState.running) return res.json({ ok: false, error: 'Backfill already running' });
+  const days = Math.min(Math.max(parseInt(req.body?.days || '30'), 1), 365);
+  res.json({ ok: true, days });
+  runBackfill(days).catch(e => {
+    backfillState.error = e.message;
+    backfillState.running = false;
+  });
+});
+
+app.get('/api/station/backfill/status', requireDashboardAuth, (_req, res) => {
+  res.json(backfillState);
+});
+
 app.listen(PORT, () => console.log(`Weather app running on port ${PORT}`));
