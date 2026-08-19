@@ -64,6 +64,30 @@ html, body {
   border-bottom: 1px solid var(--border);
   gap: 1rem;
 }
+.hdr-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+.hdr-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: opacity .15s;
+}
+.hdr-back:hover { opacity: .75; }
+.hdr-sep {
+  color: var(--border);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
 .hdr-station {
   font-size: 0.8rem;
   font-weight: 600;
@@ -73,10 +97,7 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-decoration: none;
-  transition: color .15s;
 }
-.hdr-station:hover { color: var(--text); }
 .hdr-live {
   display: flex;
   align-items: center;
@@ -310,7 +331,14 @@ canvas { display: block; }
 <body>
 
 <header class="hdr">
-  <a href="/" class="hdr-station" id="stationName">Genesis 8:22</a>
+  <div class="hdr-left">
+    <a href="/" class="hdr-back" aria-label="Back to app">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      App
+    </a>
+    <span class="hdr-sep">·</span>
+    <span class="hdr-station" id="stationName">Genesis 8:22</span>
+  </div>
   <div class="hdr-live"><span class="live-dot"></span>Live</div>
   <div class="hdr-time" id="hdrTime"></div>
 </header>
