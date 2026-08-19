@@ -302,6 +302,7 @@ const STORAGE_KEYS = {
   pwsUrl: 'weather.pwsUrl',
   ambientApiKey: 'weather.ambientApiKey',
   ambientAppKey: 'weather.ambientAppKey',
+  ambientUseStation: 'weather.ambientUseStation',
   alertIdsSeen: 'weather.alertIdsSeen',
 };
 
@@ -348,6 +349,7 @@ const state = {
   pwsUrl: localStorage.getItem(STORAGE_KEYS.pwsUrl) || '',
   ambientApiKey: localStorage.getItem(STORAGE_KEYS.ambientApiKey) || '',
   ambientAppKey: localStorage.getItem(STORAGE_KEYS.ambientAppKey) || '',
+  ambientUseStation: localStorage.getItem(STORAGE_KEYS.ambientUseStation) !== 'false',
   ambientDevice: null,
   pushSub: null,
   hourlyExtended: false,
@@ -2696,6 +2698,8 @@ if (ambientSaveBtn) {
         }).catch(() => {});
         const stationName = devices?.[0]?.info?.name || devices?.[0]?.macAddress || 'station';
         if (ambientStatusEl) { ambientStatusEl.textContent = `✓ Connected to ${stationName} — saved for all devices`; show(ambientStatusEl); }
+        const useRow = document.getElementById('ambient-use-row');
+        if (useRow) useRow.style.display = '';
         fetchAmbientStation();
       } else {
         const { error } = await res.json().catch(() => ({}));
@@ -2714,7 +2718,45 @@ fetch('/api/ambient-config').then(r => r.json()).then(({ configured }) => {
     if (ambientStatusEl) { ambientStatusEl.textContent = '✓ Keys configured on server'; show(ambientStatusEl); }
     fetchAmbientStation();
   }
+  if (configured || state.ambientApiKey) {
+    const useRow = document.getElementById('ambient-use-row');
+    if (useRow) useRow.style.display = '';
+  }
 }).catch(() => {});
+
+// ── Ambient "use as primary source" toggle ────────────────────────────────────
+const ambientUseToggle = document.getElementById('ambient-use-toggle');
+if (ambientUseToggle) {
+  ambientUseToggle.checked = state.ambientUseStation;
+  ambientUseToggle.addEventListener('change', () => {
+    state.ambientUseStation = ambientUseToggle.checked;
+    localStorage.setItem(STORAGE_KEYS.ambientUseStation, state.ambientUseStation);
+    if (state.ambientUseStation) {
+      // Re-apply station overlay immediately
+      if (state.ambientDevice) applyStationOverlay(state.ambientDevice);
+    } else {
+      // Restore location name from current city
+      if (state.currentCity) {
+        const locNameEl = document.getElementById('loc-name');
+        const locSubEl = document.getElementById('loc-sub');
+        if (locNameEl) locNameEl.textContent = state.currentCity.name;
+        if (locSubEl) locSubEl.textContent = [state.currentCity.admin1, state.currentCity.country].filter(Boolean).join(', ');
+      }
+      // Show station badge so user knows station is still fetching but not overriding
+      if (state.ambientDevice) {
+        const badge = document.getElementById('station-badge');
+        const badgeName = document.getElementById('station-badge-name');
+        if (badge) { if (badgeName) badgeName.textContent = state.ambientDevice.info?.name || 'My Station'; show(badge); }
+      }
+    }
+  });
+}
+
+// Show toggle row if keys are already saved locally
+if (state.ambientApiKey && state.ambientAppKey) {
+  const useRow = document.getElementById('ambient-use-row');
+  if (useRow) useRow.style.display = '';
+}
 
 const pwsUrlInput = document.getElementById('pws-url-input');
 const pwsSaveBtn = document.getElementById('pws-save-btn');
@@ -2879,6 +2921,7 @@ async function fetchAmbientStation() {
 
 function applyStationOverlay(device) {
   if (!device) return;
+  if (!state.ambientUseStation) return;
   const data = device.lastData || {};
   if (!data.dateutc || Date.now() - data.dateutc > 15 * 60 * 1000) return; // stale > 15 min
 
@@ -2948,13 +2991,16 @@ function applyStationOverlay(device) {
     peekEl.textContent = `· ${fS(data.windspeedmph)} ${speedUnit()} ${compassDir(data.winddir || 0)} · ${data.humidity ?? '--'}% humidity`;
   }
 
-  // Station badge
+  // Replace location name with station name
+  const stationName = device.info?.name || device.macAddress || 'My Station';
+  const locNameEl = document.getElementById('loc-name');
+  const locSubEl = document.getElementById('loc-sub');
+  if (locNameEl) locNameEl.textContent = stationName;
+  if (locSubEl) locSubEl.textContent = 'Ambient Weather Station';
+
+  // Hide the hero badge (redundant — location header now identifies the station)
   const badge = document.getElementById('station-badge');
-  const badgeName = document.getElementById('station-badge-name');
-  if (badge) {
-    if (badgeName) badgeName.textContent = device.info?.name || 'My Station';
-    show(badge);
-  }
+  if (badge) hide(badge);
 }
 
 function renderAmbientStation(device) {
