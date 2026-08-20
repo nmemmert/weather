@@ -144,6 +144,61 @@ a { color: var(--cool); text-decoration: none; }
 .settings-section-hdr { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ink-light); margin: 1.25rem 0 0.6rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
 .threshold-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 @media (max-width: 480px) { .threshold-row { grid-template-columns: 1fr; } }
+
+/* ── Section cards ── */
+.section-card { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 16px; padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
+.section-card-hdr { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-light); margin-bottom: 1.1rem; }
+
+/* ── Hero ── */
+.hero { display: flex; gap: 2rem; align-items: flex-start; flex-wrap: wrap; }
+.hero-main { flex: 0 0 auto; min-width: 160px; }
+.hero-temp-row { display: flex; align-items: baseline; gap: 0.25rem; }
+.hero-temp { font-size: 5.5rem; font-weight: 800; line-height: 1; letter-spacing: -0.03em; transition: color 0.4s; }
+.hero-temp-unit { font-size: 2rem; font-weight: 300; color: var(--ink-light); align-self: flex-start; margin-top: 0.6rem; }
+.hero-sub-line { font-size: 0.92rem; color: var(--ink-light); margin-top: 0.3rem; }
+.hero-grid { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.9rem 1.5rem; min-width: 260px; align-content: start; }
+.hero-stat-label { font-size: 0.67rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-light); margin-bottom: 0.1rem; }
+.hero-stat-val { font-size: 1.45rem; font-weight: 700; line-height: 1.15; }
+.hero-stat-unit { font-size: 0.72rem; color: var(--ink-light); }
+@media (max-width: 640px) {
+  .hero { flex-direction: column; gap: 1.25rem; }
+  .hero-temp { font-size: 4.5rem; }
+  .hero-grid { grid-template-columns: repeat(3, 1fr); min-width: 0; width: 100%; }
+  .hero-stat-val { font-size: 1.15rem; }
+}
+
+/* ── Today bar ── */
+.today-bar { display: flex; align-items: center; gap: 0.75rem; background: var(--paper-dark); border: 1px solid var(--border); border-radius: 12px; padding: 0.65rem 1.1rem; margin-bottom: 1rem; font-size: 0.88rem; flex-wrap: wrap; }
+.today-label { font-size: 0.67rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-light); font-weight: 700; margin-right: 0.1rem; flex-shrink: 0; }
+.today-item { display: flex; align-items: baseline; gap: 0.25rem; }
+.today-icon { font-size: 0.8rem; }
+.today-val { font-weight: 700; }
+.today-val.hi { color: var(--accent); }
+.today-val.lo { color: var(--cool); }
+.today-sep { width: 1px; height: 1.1em; background: var(--border); flex-shrink: 0; }
+.today-lbl { font-size: 0.75rem; color: var(--ink-light); }
+
+/* ── Tile color tints ── */
+.stat-hot  { border-color: rgba(220,80,30,0.55) !important; background: rgba(220,80,30,0.07) !important; }
+.stat-warm { border-color: rgba(200,155,0,0.5) !important;  background: rgba(200,155,0,0.06) !important; }
+.stat-cool { border-color: rgba(42,140,200,0.5) !important; background: rgba(42,140,200,0.07) !important; }
+.stat-cold { border-color: rgba(60,100,200,0.55) !important; background: rgba(60,100,200,0.09) !important; }
+.stat-raining { border-color: rgba(42,107,138,0.6) !important; background: rgba(42,107,138,0.09) !important; }
+.stat-uv-mod  { border-color: rgba(200,155,0,0.5) !important; background: rgba(200,155,0,0.07) !important; }
+.stat-uv-high { border-color: rgba(210,80,20,0.55) !important; background: rgba(210,80,20,0.08) !important; }
+.stat-uv-xhigh { border-color: rgba(150,0,70,0.5) !important; background: rgba(150,0,70,0.08) !important; }
+
+/* ── Sparklines ── */
+canvas.sparkline { display: block; width: 100%; height: 22px; margin-top: 0.4rem; opacity: 0.65; }
+
+/* ── Secondary stats strip ── */
+.stats.secondary { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); margin-bottom: 1rem; }
+
+/* ── Updated chart look ── */
+.chart-wrap { position: relative; height: 240px; }
+.chart-card.wide .chart-wrap { height: 160px; }
+.chart-card { transition: box-shadow 0.15s; }
+.chart-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
 </style>
 </head>
 <body>
@@ -164,38 +219,91 @@ a { color: var(--cool); text-decoration: none; }
   <div class="offline-banner" id="offlineBanner"></div>
   <div id="alertsSection" style="margin-bottom:0"></div>
 
-  <!-- Current stats -->
-  <div class="stats" id="statsRow">
-    <div class="stat"><div class="stat-label">Temperature</div><div class="stat-val" id="sTempF">—<span class="stat-trend" id="trTempF"></span></div><div class="stat-unit">°F</div></div>
-    <div class="stat"><div class="stat-label">Feels Like</div><div class="stat-val" id="sFeels">—</div><div class="stat-unit">°F</div></div>
-    <div class="stat"><div class="stat-label">Humidity</div><div class="stat-val" id="sHum">—<span class="stat-trend" id="trHum"></span></div><div class="stat-unit">%</div></div>
-    <div class="stat"><div class="stat-label">Dew Point</div><div class="stat-val" id="sDew">—<span class="stat-trend" id="trDew"></span></div><div class="stat-unit">°F</div></div>
-    <div class="stat"><div class="stat-label">Wind</div><div class="stat-val" id="sWind">—<span class="stat-trend" id="trWind"></span></div><div class="stat-unit">mph</div></div>
+  <!-- Hero: Current Conditions -->
+  <div class="section-card">
+    <div class="section-card-hdr">Current Conditions</div>
+    <div class="hero">
+      <div class="hero-main">
+        <div class="hero-temp-row">
+          <div class="hero-temp" id="sTempF">—</div>
+          <div class="hero-temp-unit">°F</div>
+        </div>
+        <div class="hero-sub-line">Feels like <span id="sFeels">—</span>°&thinsp;F</div>
+        <div class="hero-sub-line" id="heroWindLine" style="margin-top:0.15rem"></div>
+      </div>
+      <div class="hero-grid">
+        <div>
+          <div class="hero-stat-label">Humidity</div>
+          <div class="hero-stat-val" id="sHum">—<span class="stat-trend" id="trHum"></span></div>
+          <div class="hero-stat-unit">%</div>
+          <canvas class="sparkline" id="spHum"></canvas>
+        </div>
+        <div>
+          <div class="hero-stat-label">Dew Point</div>
+          <div class="hero-stat-val" id="sDew">—<span class="stat-trend" id="trDew"></span></div>
+          <div class="hero-stat-unit">°F</div>
+        </div>
+        <div>
+          <div class="hero-stat-label">Pressure</div>
+          <div class="hero-stat-val" id="sPres">—<span class="stat-trend" id="trPres"></span></div>
+          <div class="hero-stat-unit">inHg&thinsp;<span id="sTrend" style="font-size:0.9rem"></span></div>
+          <canvas class="sparkline" id="spPres"></canvas>
+        </div>
+        <div>
+          <div class="hero-stat-label">UV Index</div>
+          <div class="hero-stat-val" id="sUV">—<span class="stat-trend" id="trUV"></span></div>
+          <div class="hero-stat-unit"></div>
+        </div>
+        <div>
+          <div class="hero-stat-label">Solar Rad.</div>
+          <div class="hero-stat-val" id="sSolar">—<span class="stat-trend" id="trSolar"></span></div>
+          <div class="hero-stat-unit">W/m²</div>
+          <canvas class="sparkline" id="spSolar"></canvas>
+        </div>
+        <div>
+          <div class="hero-stat-label">Battery</div>
+          <div class="hero-stat-val" id="sBatt">—</div>
+          <div class="hero-stat-unit"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Today at a glance -->
+  <div class="today-bar" id="todayBar" style="display:none">
+    <span class="today-label">Today</span>
+    <div class="today-item"><span class="today-icon">↑</span><span class="today-val hi" id="todayHigh">—</span><span class="today-lbl">°F high</span></div>
+    <div class="today-item"><span class="today-icon">↓</span><span class="today-val lo" id="todayLow">—</span><span class="today-lbl">°F low</span></div>
+    <div class="today-sep"></div>
+    <div class="today-item"><span class="today-icon">💧</span><span class="today-val" id="todayRain">—</span><span class="today-lbl">" rain</span></div>
+    <div class="today-item"><span class="today-icon">💨</span><span class="today-val" id="todayGust">—</span><span class="today-lbl"> mph peak gust</span></div>
+  </div>
+
+  <!-- Secondary stats: wind, rain, indoor -->
+  <div class="stats secondary" id="statsRow">
+    <div class="stat" id="statWindTile">
+      <div class="stat-label">Wind</div>
+      <div class="stat-val" id="sWind">—<span class="stat-trend" id="trWind"></span></div>
+      <div class="stat-unit">mph <span id="sWindDir" style="font-size:0.8rem;color:var(--ink-light)"></span></div>
+      <canvas class="sparkline" id="spWind"></canvas>
+    </div>
     <div class="stat"><div class="stat-label">Wind Gust</div><div class="stat-val" id="sGust">—</div><div class="stat-unit">mph</div></div>
     <div class="stat"><div class="stat-label">Max Gust Today</div><div class="stat-val" id="sMaxGust">—</div><div class="stat-unit">mph</div></div>
-    <div class="stat">
-      <div class="stat-label">Pressure</div>
-      <div class="stat-val" id="sPres">—<span class="stat-trend" id="trPres"></span></div>
-      <div class="stat-unit">inHg &nbsp;<span id="sTrend" style="font-size:1rem;"></span></div>
-    </div>
-    <div class="stat"><div class="stat-label">Rain Today</div><div class="stat-val" id="sRain">—</div><div class="stat-unit">in</div></div>
-    <div class="stat"><div class="stat-label">Rain Rate</div><div class="stat-val" id="sRainRate">—</div><div class="stat-unit">in/hr</div></div>
-    <div class="stat"><div class="stat-label">UV Index</div><div class="stat-val" id="sUV">—<span class="stat-trend" id="trUV"></span></div><div class="stat-unit"></div></div>
-    <div class="stat"><div class="stat-label">Solar Rad.</div><div class="stat-val" id="sSolar">—<span class="stat-trend" id="trSolar"></span></div><div class="stat-unit">W/m²</div></div>
-    <div class="stat"><div class="stat-label">Battery</div><div class="stat-val" id="sBatt">—</div><div class="stat-unit"></div></div>
+    <div class="stat" id="statRainTile"><div class="stat-label">Rain Today</div><div class="stat-val" id="sRain">—</div><div class="stat-unit">in</div></div>
+    <div class="stat" id="statRainRateTile"><div class="stat-label">Rain Rate</div><div class="stat-val" id="sRainRate">—</div><div class="stat-unit">in/hr</div></div>
     <div class="stat" id="indoorTempTile" style="display:none"><div class="stat-label">Temp In</div><div class="stat-val" id="sTempIn">—</div><div class="stat-unit">°F</div></div>
     <div class="stat" id="indoorFeelsTile" style="display:none"><div class="stat-label">Feels Like In</div><div class="stat-val" id="sFeelsIn">—</div><div class="stat-unit">°F</div></div>
     <div class="stat" id="indoorHumTile" style="display:none"><div class="stat-label">Humidity In</div><div class="stat-val" id="sHumIn">—</div><div class="stat-unit">%</div></div>
     <div class="stat" id="indoorDewTile" style="display:none"><div class="stat-label">Dew Point In</div><div class="stat-val" id="sDewIn">—</div><div class="stat-unit">°F</div></div>
   </div>
 
-  <!-- Rain totals + degree days -->
-  <div class="stats" id="extStats">
+  <!-- Totals & analytics -->
+  <div class="stats secondary" id="extStats">
     <div class="stat"><div class="stat-label">Rain 7d</div><div class="stat-val" id="sRain7d">—</div><div class="stat-unit">in</div></div>
     <div class="stat"><div class="stat-label">Rain 30d</div><div class="stat-val" id="sRain30d">—</div><div class="stat-unit">in</div></div>
     <div class="stat"><div class="stat-label">Rain YTD</div><div class="stat-val" id="sRainYTD">—</div><div class="stat-unit">in</div></div>
     <div class="stat" id="sEventRainTile" style="display:none"><div class="stat-label">Event Rain</div><div class="stat-val" id="sEventRain">—</div><div class="stat-unit">in</div></div>
-    <div class="stat" id="sTotalRainTile" style="display:none"><div class="stat-label">Total Rain</div><div class="stat-val" id="sTotalRain">—</div><div class="stat-unit">in (lifetime)</div></div>
+    <div class="stat" id="sTotalRainTile" style="display:none"><div class="stat-label">Total Rain</div><div class="stat-val" id="sTotalRain">—</div><div class="stat-unit">in lifetime</div></div>
     <div class="stat"><div class="stat-label">Heating DD</div><div class="stat-val" id="sHDD">—</div><div class="stat-unit">this month</div></div>
     <div class="stat"><div class="stat-label">Cooling DD</div><div class="stat-val" id="sCDD">—</div><div class="stat-unit">this month</div></div>
     <div class="stat" id="sStreakTile" style="display:none">
@@ -467,9 +575,11 @@ function deepMerge(a, b) {
 
 function lineDataset(label, data, color, dashed = false) {
   return {
-    label, data, borderColor: color, backgroundColor: color + '22',
-    borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 4,
-    borderDash: dashed ? [4, 3] : [], tension: 0.35, fill: false,
+    label, data, borderColor: color,
+    backgroundColor: dashed ? color + '00' : color + '18',
+    borderWidth: 1.75, pointRadius: 0, pointHoverRadius: 4,
+    borderDash: dashed ? [4, 3] : [], tension: 0.35,
+    fill: dashed ? false : 'origin',
   };
 }
 
@@ -697,6 +807,10 @@ function renderCharts(readings, range, yoy = null) {
       lbls, '%', { scales: { y: { min: 0, max: 100 } } });
   }
 
+  // Today bar + sparklines use full readings (not downsampled pts)
+  updateTodayBar(readings);
+  updateSparklines(readings);
+
   // Wind rose
   const roseCanvas = document.getElementById('windRoseCanvas');
   if (roseCanvas) {
@@ -766,6 +880,20 @@ async function updateLatest() {
       set('sTotalRain', d.totalrainin, 2);
       document.getElementById('sTotalRainTile').style.display = '';
     }
+
+    // Hero wind line
+    const heroWind = document.getElementById('heroWindLine');
+    if (heroWind && d.windspeedmph != null) {
+      const dir = d.winddir != null ? cardinal(d.winddir) : '';
+      heroWind.textContent = d.windspeedmph > 0
+        ? `${d.windspeedmph.toFixed(1)} mph ${dir} wind`
+        : 'Calm winds';
+    }
+    // Wind direction on secondary tile
+    const windDirEl = document.getElementById('sWindDir');
+    if (windDirEl && d.winddir != null) windDirEl.textContent = cardinal(d.winddir);
+
+    colorTiles(d);
 
     const name = document.getElementById('stationName');
     if (name && d.PASSKEY) name.textContent = '';
@@ -1235,6 +1363,116 @@ document.getElementById('saveThreshBtn')?.addEventListener('click', async () => 
     setTimeout(() => msg.textContent = '', 4000);
   } catch { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
 });
+
+// ── Tile color coding ─────────────────────────────────────────────────────────
+function tempColorClass(t) {
+  if (t == null) return '';
+  if (t >= 95) return 'stat-hot';
+  if (t >= 80) return 'stat-warm';
+  if (t <= 32) return 'stat-cold';
+  if (t <= 50) return 'stat-cool';
+  return '';
+}
+function uvColorClass(uv) {
+  if (uv == null || uv < 3) return '';
+  if (uv < 6) return 'stat-uv-mod';
+  if (uv < 8) return 'stat-uv-high';
+  return 'stat-uv-xhigh';
+}
+function applyClass(el, cls) {
+  if (!el) return;
+  el.classList.remove('stat-hot','stat-warm','stat-cool','stat-cold','stat-raining','stat-uv-mod','stat-uv-high','stat-uv-xhigh');
+  if (cls) el.classList.add(cls);
+}
+function colorTiles(d) {
+  // Hero temp color
+  const heroTemp = document.getElementById('sTempF');
+  if (heroTemp && d.tempf != null) {
+    const cls = tempColorClass(d.tempf);
+    const colorMap = { 'stat-hot': 'var(--accent)', 'stat-warm': '#c8a000', 'stat-cold': '#4a7cc7', 'stat-cool': 'var(--cool)', '': 'var(--ink)' };
+    heroTemp.style.color = colorMap[cls] || 'var(--ink)';
+  }
+  // UV tile
+  const uvTile = document.querySelector('[id="sUV"]')?.closest('.hero-stat-val')?.parentElement;
+  // (using the hero-grid cell)
+  const uvParent = document.getElementById('sUV')?.closest('div[class=""]');
+  // Rain rate
+  const rrTile = document.getElementById('statRainRateTile');
+  if (rrTile) applyClass(rrTile, d.rainratein > 0 ? 'stat-raining' : '');
+  const rTile = document.getElementById('statRainTile');
+  if (rTile) applyClass(rTile, d.rainratein > 0 ? 'stat-raining' : '');
+  // Wind tile
+  const wTile = document.getElementById('statWindTile');
+  if (wTile) applyClass(wTile, d.windspeedmph >= 30 ? 'stat-hot' : d.windspeedmph >= 20 ? 'stat-warm' : '');
+}
+
+// ── Sparklines ────────────────────────────────────────────────────────────────
+function drawSparkline(canvasId, values, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth || 100, H = 22;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const valid = values.filter(v => v != null);
+  if (valid.length < 2) return;
+  const min = Math.min(...valid), max = Math.max(...valid);
+  const range = max - min || 1;
+  const pad = 2;
+  ctx.clearRect(0, 0, W, H);
+  // gradient fill
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, color + '55'); grad.addColorStop(1, color + '00');
+  ctx.beginPath();
+  const step = (W - pad * 2) / (values.length - 1);
+  let startX = pad, startY;
+  let drawing = false;
+  const pts = [];
+  values.forEach((v, i) => {
+    if (v == null) return;
+    const x = pad + i * step;
+    const y = H - pad - ((v - min) / range) * (H - pad * 3);
+    pts.push([x, y]);
+  });
+  if (!pts.length) return;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+  ctx.stroke();
+  // fill
+  ctx.lineTo(pts[pts.length-1][0], H); ctx.lineTo(pts[0][0], H); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+}
+
+function updateSparklines(readings) {
+  const step = readings.length > 120 ? Math.ceil(readings.length / 120) : 1;
+  const pts = step > 1 ? readings.filter((_, i) => i % step === 0) : readings;
+  const c = chartColors();
+  drawSparkline('spHum',   pts.map(r => r.humidity),       c.cool);
+  drawSparkline('spPres',  pts.map(r => r.baromrelin),     c.accent);
+  drawSparkline('spSolar', pts.map(r => r.solarradiation), c.accent);
+  drawSparkline('spWind',  pts.map(r => r.windspeedmph),   c.cool);
+}
+
+// ── Today at a glance ─────────────────────────────────────────────────────────
+function updateTodayBar(readings) {
+  const midnightToday = new Date(); midnightToday.setHours(0,0,0,0);
+  const today = readings.filter(r => r.dateutc >= midnightToday.getTime());
+  if (!today.length) return;
+  const temps = today.map(r => r.tempf).filter(v => v != null);
+  const gusts = today.map(r => r.windgustmph).filter(v => v != null);
+  const maxRain = Math.max(...today.map(r => r.dailyrainin || 0));
+  if (temps.length) {
+    document.getElementById('todayHigh').textContent = Math.max(...temps).toFixed(1);
+    document.getElementById('todayLow').textContent = Math.min(...temps).toFixed(1);
+  }
+  document.getElementById('todayRain').textContent = maxRain.toFixed(2);
+  if (gusts.length) document.getElementById('todayGust').textContent = Math.max(...gusts).toFixed(1);
+  document.getElementById('todayBar').style.display = '';
+}
 
 // ── NWS Alerts ────────────────────────────────────────────────────────────────
 const SEV_CLASS = { Extreme: 'sev-extreme', Severe: 'sev-severe', Moderate: 'sev-moderate', Minor: 'sev-minor' };
