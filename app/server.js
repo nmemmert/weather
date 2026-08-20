@@ -1293,6 +1293,66 @@ app.post('/api/subscriptions/thresholds', requireDashboardAuth, (req, res) => {
   res.json({ ok: true, updated: pushSubscriptions.length });
 });
 
+// Station location (for dashboard alerts)
+app.get('/api/dashboard/location', requireDashboardAuth, (_req, res) => {
+  if (dashAuth?.stationLat != null)
+    return res.json({ lat: dashAuth.stationLat, lon: dashAuth.stationLon });
+  if (pushSubscriptions.length)
+    return res.json({ lat: pushSubscriptions[0].lat, lon: pushSubscriptions[0].lon, fromSubscription: true });
+  res.json(null);
+});
+app.post('/api/dashboard/location', requireDashboardAuth, (req, res) => {
+  const { lat, lon } = req.body || {};
+  if (!isValidCoord(lat, -90, 90) || !isValidCoord(lon, -180, 180))
+    return res.status(400).json({ error: 'Invalid coordinates' });
+  dashAuth = { ...dashAuth, stationLat: +lat, stationLon: +lon };
+  try { fs.writeFileSync(DASH_AUTH_FILE, JSON.stringify(dashAuth)); } catch {}
+  res.json({ ok: true });
+});
+
+// NWS alerts for the station location (5-min cache)
+const dashAlertCache = new Map();
+app.get('/api/dashboard/alerts', requireDashboardAuth, async (_req, res) => {
+  let lat = dashAuth?.stationLat;
+  let lon = dashAuth?.stationLon;
+  if (lat == null && pushSubscriptions.length) { lat = pushSubscriptions[0].lat; lon = pushSubscriptions[0].lon; }
+  if (lat == null) return res.json({ features: [], noLocation: true });
+  const cacheKey = `${lat},${lon}`;
+  const cached = dashAlertCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < 5 * 60 * 1000) return res.json(cached.data);
+  try {
+    const r = await fetchWithRetry(`https://api.weather.gov/alerts/active?point=${lat},${lon}`, {
+      attempts: 1, timeoutMs: 12000,
+      fetchOptions: { headers: { 'User-Agent': 'weather-app-v2 (nate@necloud.us)', Accept: 'application/geo+json' } },
+    });
+    const data = await r.json();
+    dashAlertCache.set(cacheKey, { data, at: Date.now() });
+    res.json(data);
+  } catch { res.json({ features: [] }); }
+});
+
+// Consecutive dry/wet streak (from daily rain totals)
+app.get('/api/station/streak', requireDashboardAuth, (_req, res) => {
+  const readings = loadStationReadings(60 * 86400000);
+  const byDay = {};
+  for (const r of readings) {
+    if (r.dailyrainin == null || !r.dateutc) continue;
+    const d = stationDateKey(r.dateutc);
+    if (byDay[d] == null || r.dailyrainin > byDay[d]) byDay[d] = r.dailyrainin;
+  }
+  const days = Object.keys(byDay).sort().reverse();
+  if (!days.length) return res.json({ type: null, count: 0 });
+  const latestRain = byDay[days[0]];
+  const streakType = latestRain >= 0.01 ? 'wet' : 'dry';
+  let count = 0;
+  for (const d of days) {
+    const rain = byDay[d];
+    if (streakType === 'wet' ? rain >= 0.01 : rain < 0.01) count++;
+    else break;
+  }
+  res.json({ type: streakType, count });
+});
+
 // Trend data — last reading vs 1h ago for each tile
 app.get('/api/station/trend', requireDashboardAuth, (_req, res) => {
   const hour = loadStationReadings(3600000);
