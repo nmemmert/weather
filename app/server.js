@@ -643,7 +643,6 @@ function handleHomekitPush(req, res) {
   if (!token || token !== homekitConfig.token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  // Merge query params and body so either works
   const p = { ...(req.body || {}), ...req.query };
 
   function parseTemp(val) {
