@@ -178,6 +178,21 @@ a { color: var(--cool); text-decoration: none; }
 .today-sep { width: 1px; height: 1.1em; background: var(--border); flex-shrink: 0; }
 .today-lbl { font-size: 0.75rem; color: var(--ink-light); }
 
+/* ── Ecobee section ── */
+.hvac-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+.hvac-heating { background: rgba(194,90,42,0.18); color: var(--accent); border: 1px solid var(--accent); }
+.hvac-cooling { background: rgba(42,107,138,0.18); color: var(--cool); border: 1px solid var(--cool); }
+.hvac-fan     { background: rgba(42,107,138,0.1);  color: var(--cool); border: 1px solid var(--border); }
+.hvac-idle    { background: var(--paper-darker); color: var(--ink-light); border: 1px solid var(--border); }
+.ecobee-sensors { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.sensor-chip { background: var(--paper); border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.7rem; font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; }
+.sensor-chip-name { color: var(--ink-light); font-size: 0.72rem; }
+.sensor-chip-val  { font-weight: 700; }
+.ecobee-row { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; }
+.ecobee-main { flex: 0 0 auto; min-width: 120px; }
+.ecobee-setpoints { display: flex; gap: 1rem; margin-top: 0.4rem; font-size: 0.85rem; color: var(--ink-light); }
+.ecobee-setpoints strong { color: var(--ink); }
+
 /* ── Tile color tints ── */
 .stat-hot  { border-color: rgba(220,80,30,0.55) !important; background: rgba(220,80,30,0.07) !important; }
 .stat-warm { border-color: rgba(200,155,0,0.5) !important;  background: rgba(200,155,0,0.06) !important; }
@@ -319,6 +334,37 @@ canvas.sparkline { display: block; width: 100%; height: 22px; margin-top: 0.4rem
     </div>
   </div>
 
+  <!-- Ecobee Thermostat -->
+  <div class="section-card" id="ecobeeSection" style="display:none">
+    <div class="section-card-hdr" style="display:flex;align-items:center;gap:0.75rem">
+      Ecobee Thermostat
+      <span id="ecobeeBadge" class="hvac-badge hvac-idle">—</span>
+      <span style="font-size:0.72rem;color:var(--ink-light);margin-left:auto" id="ecobeeUpdated"></span>
+    </div>
+    <div class="ecobee-row">
+      <div class="ecobee-main">
+        <div class="hero-temp-row">
+          <div class="hero-temp" id="ecobeeTempF" style="font-size:3.5rem">—</div>
+          <div class="hero-temp-unit" style="font-size:1.4rem;margin-top:0.4rem">°F</div>
+        </div>
+        <div class="ecobee-setpoints">
+          <span>Heat: <strong id="ecobeeHeatSet">—</strong>°</span>
+          <span>Cool: <strong id="ecobeeCoolSet">—</strong>°</span>
+        </div>
+        <div style="margin-top:0.35rem;font-size:0.82rem;color:var(--ink-light)">Humidity: <strong id="ecobeeHum">—</strong>%</div>
+        <div style="margin-top:0.25rem;font-size:0.82rem;color:var(--ink-light)">Mode: <strong id="ecobeeMode">—</strong></div>
+      </div>
+      <div style="flex:1;min-width:220px">
+        <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-light);margin-bottom:0.5rem">Sensors</div>
+        <div class="ecobee-sensors" id="ecobeeSensors"><span style="font-size:0.82rem;color:var(--ink-light)">Loading…</span></div>
+        <div style="margin-top:0.9rem">
+          <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-light);margin-bottom:0.5rem">HVAC Runtime (last 7 days)</div>
+          <div style="position:relative;height:100px"><canvas id="ecobeeRuntimeChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Range selector -->
   <div class="range-bar">
     <span>History:</span>
@@ -362,6 +408,39 @@ canvas.sparkline { display: block; width: 100%; height: 22px; margin-top: 0.4rem
     <summary>Temperature Calendar</summary>
     <div class="settings-body" id="heatmapBody">
       <div class="status">Loading…</div>
+    </div>
+  </details>
+
+  <!-- Ecobee Settings -->
+  <details class="settings-panel" id="ecobeeSettingsPanel" style="margin-top:1rem">
+    <summary>Ecobee Thermostat Setup</summary>
+    <div class="settings-body">
+      <p id="ecobeeConfigStatus" class="keys-status"></p>
+
+      <div class="settings-section-hdr">API Key</div>
+      <p class="keys-hint" style="margin:0 0 0.75rem">Create a free developer app at <strong>developer.ecobee.com → Apps → Add Application</strong>. Copy the "API Key" here.</p>
+      <div style="max-width:420px;margin-bottom:0.75rem">
+        <label>Ecobee API Key</label>
+        <input id="ecobeeApiKeyInput" type="password" placeholder="Enter your Ecobee API key" autocomplete="off">
+      </div>
+      <div class="settings-actions">
+        <button id="ecobeeApiKeySaveBtn">Save Key</button>
+        <span id="ecobeeApiKeyMsg" class="save-msg"></span>
+      </div>
+
+      <hr class="settings-divider">
+
+      <div class="settings-section-hdr">Authorize Access</div>
+      <p class="keys-hint" style="margin:0 0 0.75rem">After saving your API key, click "Get PIN" to get a 4-character code. Log in to <strong>ecobee.com → My Apps → Add Application</strong>, enter the PIN, then click "Complete Authorization" here.</p>
+      <div class="settings-actions" style="gap:0.75rem;flex-wrap:wrap">
+        <button id="ecobeePinBtn">Get PIN</button>
+        <span id="ecobeePinDisplay" style="font-size:1.1rem;font-weight:700;font-family:monospace;letter-spacing:0.15em;color:var(--accent);display:none"></span>
+        <button id="ecobeeCompleteBtn" style="display:none">Complete Authorization</button>
+        <span id="ecobeeAuthMsg" class="save-msg"></span>
+      </div>
+      <div id="ecobeePinHint" style="display:none;margin-top:0.6rem" class="keys-hint">
+        Enter the PIN above at <strong>ecobee.com → My Apps → Add Application</strong>, then click "Complete Authorization" below.
+      </div>
     </div>
   </details>
 
@@ -1543,6 +1622,219 @@ document.getElementById('saveLocBtn')?.addEventListener('click', async () => {
   } catch { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
 });
 
+// ── Ecobee ───────────────────────────────────────────────────────────────────
+let ecobeeRuntimeChart = null;
+
+function ecobeeEquipmentBadge(status) {
+  if (!status) return { text: 'Idle', cls: 'hvac-idle' };
+  const s = status.toLowerCase();
+  if (s.includes('compcool') || s.includes('cool'))   return { text: 'Cooling', cls: 'hvac-cooling' };
+  if (s.includes('compheat') || s.includes('auxheat') || s.includes('heatpump')) return { text: 'Heating', cls: 'hvac-heating' };
+  if (s.includes('fan'))  return { text: 'Fan', cls: 'hvac-fan' };
+  return { text: 'Idle', cls: 'hvac-idle' };
+}
+
+async function loadEcobeeData() {
+  const section = document.getElementById('ecobeeSection');
+  try {
+    const r = await fetch('/api/ecobee/data');
+    if (!r.ok) return;
+    const data = await r.json();
+    const t = data?.thermostatList?.[0];
+    if (!t) return;
+
+    section.style.display = '';
+    const rt = t.runtime || {};
+    const settings = t.settings || {};
+
+    // Temperature (ecobee reports in tenths of °F)
+    const tempF = rt.actualTemperature != null ? (rt.actualTemperature / 10).toFixed(1) : null;
+    const heatSet = rt.desiredHeat != null ? (rt.desiredHeat / 10).toFixed(0) : null;
+    const coolSet = rt.desiredCool != null ? (rt.desiredCool / 10).toFixed(0) : null;
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.textContent = val; };
+    set('ecobeeTempF', tempF ?? '—');
+    set('ecobeeHeatSet', heatSet ?? '—');
+    set('ecobeeCoolSet', coolSet ?? '—');
+    set('ecobeeHum', rt.actualHumidity ?? '—');
+    set('ecobeeMode', settings.hvacMode ?? '—');
+
+    // Badge
+    const badge = document.getElementById('ecobeeBadge');
+    if (badge) {
+      const { text, cls } = ecobeeEquipmentBadge(t.equipmentStatus);
+      badge.textContent = text;
+      badge.className = `hvac-badge ${cls}`;
+    }
+
+    // Updated time
+    const upd = document.getElementById('ecobeeUpdated');
+    if (upd && rt.lastStatusModified) {
+      upd.textContent = 'Updated ' + new Date(rt.lastStatusModified.replace(' ', 'T') + 'Z').toLocaleTimeString();
+    }
+
+    // Sensors
+    const sensorsEl = document.getElementById('ecobeeSensors');
+    if (sensorsEl && t.remoteSensors?.length) {
+      sensorsEl.innerHTML = t.remoteSensors.map(s => {
+        const tempCap = s.capability?.find(c => c.type === 'temperature');
+        const occCap  = s.capability?.find(c => c.type === 'occupancy');
+        const tempVal = tempCap?.value != null && tempCap.value !== 'unknown'
+          ? (parseFloat(tempCap.value) / 10).toFixed(1) + '°F' : null;
+        const occ = occCap?.value === 'true' ? '● ' : '';
+        return `<div class="sensor-chip">
+          <div>
+            <div class="sensor-chip-name">${occ}${s.name}</div>
+            <div class="sensor-chip-val">${tempVal ?? '—'}</div>
+          </div>
+        </div>`;
+      }).join('');
+    } else if (sensorsEl) {
+      sensorsEl.innerHTML = '<span style="font-size:0.82rem;color:var(--ink-light)">No sensors</span>';
+    }
+  } catch {}
+}
+
+async function loadEcobeeRuntime() {
+  try {
+    const r = await fetch('/api/ecobee/runtime?days=7');
+    if (!r.ok) return;
+    const data = await r.json();
+    const report = data?.reportList?.[0];
+    if (!report?.rowList?.length) return;
+
+    // Aggregate seconds by day for heating and cooling
+    const byDay = {};
+    for (const row of report.rowList) {
+      const parts = row.split(',');
+      if (parts.length < 9) continue;
+      const date = parts[0]; // YYYY-MM-DD
+      if (!byDay[date]) byDay[date] = { heat: 0, cool: 0, fan: 0 };
+      // columns: auxHeat1,compCool1,compHeat1,fan,...
+      byDay[date].heat += (parseInt(parts[2]) || 0) + (parseInt(parts[4]) || 0); // auxHeat1 + compHeat1
+      byDay[date].cool += parseInt(parts[3]) || 0; // compCool1
+      byDay[date].fan  += parseInt(parts[5]) || 0;
+    }
+
+    const days = Object.keys(byDay).sort().slice(-7);
+    const labels = days.map(d => {
+      const dt = new Date(d + 'T12:00:00');
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    const toHours = secs => +(secs / 3600).toFixed(2);
+    const heatData = days.map(d => toHours(byDay[d].heat));
+    const coolData = days.map(d => toHours(byDay[d].cool));
+
+    const c = chartColors();
+    const ctx = document.getElementById('ecobeeRuntimeChart');
+    if (!ctx) return;
+    if (ecobeeRuntimeChart) ecobeeRuntimeChart.destroy();
+    ecobeeRuntimeChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Heat (hrs)', data: heatData, backgroundColor: c.accent + 'bb', borderColor: c.accent, borderWidth: 1, borderRadius: 2 },
+          { label: 'Cool (hrs)', data: coolData, backgroundColor: c.cool + 'bb', borderColor: c.cool, borderWidth: 1, borderRadius: 2 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, labels: { color: c.inkLight, font: { size: 10 }, boxWidth: 10 } }, tooltip: { backgroundColor: 'rgba(0,0,0,0.75)', titleFont: { size: 11 }, bodyFont: { size: 11 } } },
+        scales: {
+          x: { stacked: true, ticks: { color: c.inkLight, font: { size: 10 }, maxRotation: 0 }, grid: { color: c.border + '44' } },
+          y: { stacked: true, ticks: { color: c.inkLight, font: { size: 10 } }, grid: { color: c.border + '44' }, title: { display: true, text: 'hours', color: c.inkLight, font: { size: 9 } } },
+        },
+      },
+    });
+  } catch {}
+}
+
+// ── Ecobee settings UI ────────────────────────────────────────────────────────
+let ecobeePinCode = null;
+
+async function loadEcobeeConfigStatus() {
+  try {
+    const r = await fetch('/api/ecobee/config');
+    if (!r.ok) return;
+    const d = await r.json();
+    const el = document.getElementById('ecobeeConfigStatus');
+    if (d.authorized) {
+      el.textContent = '✓ Ecobee authorized and active';
+      el.className = 'keys-status ok';
+    } else if (d.hasApiKey) {
+      el.textContent = '⚠ API key saved — complete authorization below';
+      el.className = 'keys-status missing';
+    } else {
+      el.textContent = '⚠ Not configured — enter your API key to get started';
+      el.className = 'keys-status missing';
+    }
+  } catch {}
+}
+
+document.getElementById('ecobeeApiKeySaveBtn')?.addEventListener('click', async () => {
+  const key = document.getElementById('ecobeeApiKeyInput')?.value?.trim();
+  const msg = document.getElementById('ecobeeApiKeyMsg');
+  if (!key) { msg.textContent = 'Enter your API key'; msg.className = 'save-msg err'; return; }
+  try {
+    const r = await fetch('/api/ecobee/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: key }) });
+    if (r.ok) { msg.textContent = 'Saved'; msg.className = 'save-msg'; document.getElementById('ecobeeApiKeyInput').value = ''; loadEcobeeConfigStatus(); }
+    else { msg.textContent = 'Error saving'; msg.className = 'save-msg err'; }
+    setTimeout(() => msg.textContent = '', 3000);
+  } catch { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
+});
+
+document.getElementById('ecobeePinBtn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('ecobeeAuthMsg');
+  const pinDisplay = document.getElementById('ecobeePinDisplay');
+  const hint = document.getElementById('ecobeePinHint');
+  const completeBtn = document.getElementById('ecobeeCompleteBtn');
+  msg.textContent = 'Requesting PIN…'; msg.className = 'save-msg';
+  try {
+    const r = await fetch('/api/ecobee/auth/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const d = await r.json();
+    if (!r.ok || !d.pin) { msg.textContent = d.error || 'Failed to get PIN'; msg.className = 'save-msg err'; return; }
+    ecobeePinCode = d.code;
+    pinDisplay.textContent = d.pin;
+    pinDisplay.style.display = '';
+    hint.style.display = '';
+    completeBtn.style.display = '';
+    msg.textContent = `PIN valid for ${Math.round((d.expires_in || 900) / 60)} min`;
+    msg.className = 'save-msg';
+  } catch (e) { msg.textContent = 'Error: ' + e.message; msg.className = 'save-msg err'; }
+});
+
+document.getElementById('ecobeeCompleteBtn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('ecobeeAuthMsg');
+  if (!ecobeePinCode) { msg.textContent = 'Click "Get PIN" first'; msg.className = 'save-msg err'; return; }
+  msg.textContent = 'Authorizing…'; msg.className = 'save-msg';
+  try {
+    const r = await fetch('/api/ecobee/auth/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: ecobeePinCode }) });
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      const detail = d.detail ? JSON.parse(d.detail) : {};
+      if (detail.error === 'authorization_pending') {
+        msg.textContent = 'PIN not yet authorized on ecobee.com — try again after adding the app there'; msg.className = 'save-msg err';
+      } else {
+        msg.textContent = d.error || 'Authorization failed'; msg.className = 'save-msg err';
+      }
+      return;
+    }
+    msg.textContent = '✓ Authorized! Ecobee data will appear shortly.'; msg.className = 'save-msg';
+    ecobeePinCode = null;
+    document.getElementById('ecobeePinDisplay').style.display = 'none';
+    document.getElementById('ecobeePinHint').style.display = 'none';
+    document.getElementById('ecobeeCompleteBtn').style.display = 'none';
+    loadEcobeeConfigStatus();
+    loadEcobeeData();
+    loadEcobeeRuntime();
+  } catch (e) { msg.textContent = 'Error: ' + e.message; msg.className = 'save-msg err'; }
+});
+
+document.getElementById('ecobeeSettingsPanel')?.addEventListener('toggle', function() {
+  if (this.open) loadEcobeeConfigStatus();
+});
+
 // ── Init all new features ─────────────────────────────────────────────────────
 updateLatest();
 updatePressureTrend();
@@ -1556,11 +1848,15 @@ loadThresholds();
 loadAlerts();
 loadStreak();
 loadLocation();
+loadEcobeeData();
+loadEcobeeRuntime();
 
 setInterval(updatePressureTrend, 120000);
 setInterval(updateExtStats, 300000);
 setInterval(updateTrends, 120000);
 setInterval(loadAlerts, 5 * 60 * 1000);
+setInterval(loadEcobeeData, 3 * 60 * 1000);
+setInterval(loadEcobeeRuntime, 15 * 60 * 1000);
 </script>
 </body>
 </html>
