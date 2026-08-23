@@ -600,190 +600,76 @@ app.get('/api/ambient', async (req, res) => {
   }
 });
 
-// ── Ecobee thermostat integration ─────────────────────────────────────────────
-const ECOBEE_CONFIG_FILE = path.join(DATA_DIR, 'ecobee-config.json');
-const ECOBEE_BASE = 'https://api.ecobee.com';
-let ecobeeConfig = { apiKey: '', accessToken: '', refreshToken: '', expiresAt: 0 };
+// ── HomeKit thermostat push ───────────────────────────────────────────────────
+const HOMEKIT_CONFIG_FILE = path.join(DATA_DIR, 'homekit-config.json');
+const HOMEKIT_LATEST_FILE = path.join(DATA_DIR, 'homekit-latest.json');
+
+let homekitConfig = { token: '' };
+let homekitLatest = null;
+
 try {
-  if (fs.existsSync(ECOBEE_CONFIG_FILE)) {
-    ecobeeConfig = JSON.parse(fs.readFileSync(ECOBEE_CONFIG_FILE, 'utf8'));
+  if (fs.existsSync(HOMEKIT_CONFIG_FILE)) {
+    homekitConfig = JSON.parse(fs.readFileSync(HOMEKIT_CONFIG_FILE, 'utf8'));
   }
 } catch {}
 
-function saveEcobeeConfig() {
-  try { fs.writeFileSync(ECOBEE_CONFIG_FILE, JSON.stringify(ecobeeConfig)); } catch {}
+if (!homekitConfig.token) {
+  homekitConfig.token = crypto.randomBytes(32).toString('hex');
+  try { fs.writeFileSync(HOMEKIT_CONFIG_FILE, JSON.stringify(homekitConfig)); } catch {}
 }
 
-let ecobeeCache = null;
-let ecobeeCacheAt = 0;
-
-async function ecobeeRefreshTokens() {
-  if (!ecobeeConfig.apiKey || !ecobeeConfig.refreshToken) return false;
-  try {
-    const r = await fetch(`${ECOBEE_BASE}/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: ecobeeConfig.refreshToken,
-        client_id: ecobeeConfig.apiKey,
-      }),
-    });
-    if (!r.ok) {
-      console.error('[ecobee] Token refresh failed:', r.status);
-      return false;
-    }
-    const data = await r.json();
-    ecobeeConfig.accessToken = data.access_token;
-    ecobeeConfig.refreshToken = data.refresh_token;
-    ecobeeConfig.expiresAt = Date.now() + (data.expires_in || 3600) * 1000 - 60000;
-    saveEcobeeConfig();
-    return true;
-  } catch (e) {
-    console.error('[ecobee] Token refresh error:', e.message);
-    return false;
+try {
+  if (fs.existsSync(HOMEKIT_LATEST_FILE)) {
+    homekitLatest = JSON.parse(fs.readFileSync(HOMEKIT_LATEST_FILE, 'utf8'));
   }
-}
+} catch {}
 
-async function ecobeeEnsureToken() {
-  if (!ecobeeConfig.accessToken) return false;
-  if (Date.now() < ecobeeConfig.expiresAt) return true;
-  return ecobeeRefreshTokens();
-}
-
-// Check config status (no sensitive data)
-app.get('/api/ecobee/config', requireDashboardAuth, (_req, res) => {
-  res.json({
-    hasApiKey: !!ecobeeConfig.apiKey,
-    authorized: !!(ecobeeConfig.accessToken && ecobeeConfig.refreshToken),
-    expiresAt: ecobeeConfig.expiresAt || null,
-  });
+// Get push token — dashboard auth
+app.get('/api/homekit/config', requireDashboardAuth, (_req, res) => {
+  res.json({ token: homekitConfig.token });
 });
 
-// Save the API key (from developer.ecobee.com)
-app.post('/api/ecobee/config', requireDashboardAuth, (req, res) => {
-  const { apiKey } = req.body || {};
-  if (!apiKey) return res.status(400).json({ error: 'apiKey required' });
-  ecobeeConfig = { ...ecobeeConfig, apiKey };
-  saveEcobeeConfig();
+// Regenerate push token — dashboard auth
+app.post('/api/homekit/config/regenerate', requireDashboardAuth, (_req, res) => {
+  homekitConfig.token = crypto.randomBytes(32).toString('hex');
+  try { fs.writeFileSync(HOMEKIT_CONFIG_FILE, JSON.stringify(homekitConfig)); } catch {}
+  res.json({ token: homekitConfig.token });
+});
+
+// Receive thermostat data from iOS Shortcut — token header auth
+app.post('/api/homekit/push', (req, res) => {
+  const token = req.headers['x-homekit-token'] || req.query.token;
+  if (!token || token !== homekitConfig.token) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const body = req.body || {};
+  // HomeKit reports temperatures in Celsius; auto-detect and convert
+  let tempF = parseFloat(body.tempF ?? body.temperature);
+  if (!isNaN(tempF) && tempF < 50) tempF = +(tempF * 9 / 5 + 32).toFixed(1);
+
+  let heatSetF = body.heatSetF != null ? parseFloat(body.heatSetF) : null;
+  if (heatSetF != null && heatSetF < 50) heatSetF = +(heatSetF * 9 / 5 + 32).toFixed(1);
+
+  let coolSetF = body.coolSetF != null ? parseFloat(body.coolSetF) : null;
+  if (coolSetF != null && coolSetF < 50) coolSetF = +(coolSetF * 9 / 5 + 32).toFixed(1);
+
+  homekitLatest = {
+    tempF: isNaN(tempF) ? null : tempF,
+    heatSetF: heatSetF != null && !isNaN(heatSetF) ? +parseFloat(heatSetF).toFixed(1) : null,
+    coolSetF: coolSetF != null && !isNaN(coolSetF) ? +parseFloat(coolSetF).toFixed(1) : null,
+    humidity: body.humidity != null ? +parseFloat(body.humidity).toFixed(0) : null,
+    mode: body.mode || null,
+    hvacState: body.hvacState || null,
+    receivedAt: Date.now(),
+  };
+  try { fs.writeFileSync(HOMEKIT_LATEST_FILE, JSON.stringify(homekitLatest)); } catch {}
   res.json({ ok: true });
 });
 
-// Step 1: get a PIN code to authorize
-app.post('/api/ecobee/auth/pin', requireDashboardAuth, async (req, res) => {
-  if (!ecobeeConfig.apiKey) return res.status(400).json({ error: 'Set API key first' });
-  try {
-    const r = await fetch(
-      `${ECOBEE_BASE}/authorize?response_type=ecobeePin&client_id=${encodeURIComponent(ecobeeConfig.apiKey)}&scope=smartRead`,
-      { headers: { Accept: 'application/json' } }
-    );
-    if (!r.ok) {
-      const text = await r.text();
-      return res.status(502).json({ error: `Ecobee error: ${r.status}`, detail: text });
-    }
-    const data = await r.json();
-    res.json({ pin: data.ecobeePin, code: data.code, expires_in: data.expires_in });
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
-});
-
-// Step 2: exchange authorization code for tokens (after user enters PIN on ecobee.com)
-app.post('/api/ecobee/auth/complete', requireDashboardAuth, async (req, res) => {
-  const { code } = req.body || {};
-  if (!code || !ecobeeConfig.apiKey) return res.status(400).json({ error: 'code and apiKey required' });
-  try {
-    const r = await fetch(`${ECOBEE_BASE}/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'ecobeePin',
-        code,
-        client_id: ecobeeConfig.apiKey,
-      }),
-    });
-    if (!r.ok) {
-      const text = await r.text();
-      return res.status(r.status === 400 ? 400 : 502).json({ error: `Ecobee error: ${r.status}`, detail: text });
-    }
-    const data = await r.json();
-    ecobeeConfig.accessToken = data.access_token;
-    ecobeeConfig.refreshToken = data.refresh_token;
-    ecobeeConfig.expiresAt = Date.now() + (data.expires_in || 3600) * 1000 - 60000;
-    saveEcobeeConfig();
-    ecobeeCache = null; ecobeeCacheAt = 0;
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(502).json({ error: e.message });
-  }
-});
-
-// Current thermostat data (3-min cache)
-app.get('/api/ecobee/data', requireDashboardAuth, async (_req, res) => {
-  if (!ecobeeConfig.accessToken) return res.status(503).json({ error: 'Ecobee not authorized' });
-  if (ecobeeCache && Date.now() - ecobeeCacheAt < 3 * 60 * 1000) return res.json(ecobeeCache);
-
-  const ok = await ecobeeEnsureToken();
-  if (!ok) return res.status(503).json({ error: 'Ecobee token refresh failed' });
-
-  const body = JSON.stringify({
-    selection: { selectionType: 'registered', selectionMatch: '', includeSensors: true, includeRuntime: true, includeSettings: true, includeEquipmentStatus: true },
-  });
-  try {
-    const r = await fetch(`${ECOBEE_BASE}/1/thermostat?format=json&body=${encodeURIComponent(body)}`, {
-      headers: { Authorization: `Bearer ${ecobeeConfig.accessToken}`, Accept: 'application/json' },
-    });
-    if (!r.ok) {
-      const text = await r.text();
-      return res.status(502).json({ error: `Ecobee API ${r.status}`, detail: text });
-    }
-    const data = await r.json();
-    ecobeeCache = data;
-    ecobeeCacheAt = Date.now();
-    res.json(data);
-  } catch (e) {
-    console.error('[ecobee] data fetch error:', e.message);
-    if (ecobeeCache) return res.json(ecobeeCache);
-    res.status(502).json({ error: e.message });
-  }
-});
-
-// Runtime history — returns heating/cooling seconds per interval for the past N days
-app.get('/api/ecobee/runtime', requireDashboardAuth, async (req, res) => {
-  if (!ecobeeConfig.accessToken) return res.status(503).json({ error: 'Ecobee not authorized' });
-
-  const ok = await ecobeeEnsureToken();
-  if (!ok) return res.status(503).json({ error: 'Ecobee token refresh failed' });
-
-  const days = Math.min(parseInt(req.query.days || '7'), 30);
-  const endDate = new Date();
-  const startDate = new Date(Date.now() - days * 86400000);
-  const fmt = d => d.toISOString().slice(0, 10);
-
-  const body = JSON.stringify({
-    selection: { selectionType: 'registered', selectionMatch: '' },
-    startDate: fmt(startDate),
-    endDate: fmt(endDate),
-    startInterval: 0,
-    endInterval: 287,
-    columns: 'auxHeat1,compCool1,compHeat1,fan,humidifier,dehumidifier,ventilator',
-    includeSensors: false,
-  });
-
-  try {
-    const r = await fetch(`${ECOBEE_BASE}/1/runtimeReport?format=json&body=${encodeURIComponent(body)}`, {
-      headers: { Authorization: `Bearer ${ecobeeConfig.accessToken}`, Accept: 'application/json' },
-    });
-    if (!r.ok) {
-      const text = await r.text();
-      return res.status(502).json({ error: `Ecobee API ${r.status}`, detail: text });
-    }
-    const data = await r.json();
-    res.json(data);
-  } catch (e) {
-    console.error('[ecobee] runtime fetch error:', e.message);
-    res.status(502).json({ error: e.message });
-  }
+// Latest thermostat reading — dashboard auth
+app.get('/api/homekit/data', requireDashboardAuth, (_req, res) => {
+  if (!homekitLatest) return res.status(503).json({ error: 'No data yet' });
+  res.json(homekitLatest);
 });
 
 // ── Personal weather station proxy ────────────────────────────────────────────
