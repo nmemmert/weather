@@ -636,35 +636,37 @@ app.post('/api/homekit/config/regenerate', requireDashboardAuth, (_req, res) => 
   res.json({ token: homekitConfig.token });
 });
 
-// Receive thermostat data from iOS Shortcut — token header auth
-app.post('/api/homekit/push', (req, res) => {
-  const token = req.headers['x-homekit-token'] || req.query.token;
+// Receive thermostat data from iOS Shortcut — token in query string or header
+// Accepts both GET (query params) and POST (JSON body or query params)
+function handleHomekitPush(req, res) {
+  const token = req.query.token || req.headers['x-homekit-token'] || (req.body || {}).token;
   if (!token || token !== homekitConfig.token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const body = req.body || {};
-  // HomeKit reports temperatures in Celsius; auto-detect and convert
-  let tempF = parseFloat(body.tempF ?? body.temperature);
-  if (!isNaN(tempF) && tempF < 50) tempF = +(tempF * 9 / 5 + 32).toFixed(1);
+  // Merge query params and body so either works
+  const p = { ...(req.body || {}), ...req.query };
 
-  let heatSetF = body.heatSetF != null ? parseFloat(body.heatSetF) : null;
-  if (heatSetF != null && heatSetF < 50) heatSetF = +(heatSetF * 9 / 5 + 32).toFixed(1);
-
-  let coolSetF = body.coolSetF != null ? parseFloat(body.coolSetF) : null;
-  if (coolSetF != null && coolSetF < 50) coolSetF = +(coolSetF * 9 / 5 + 32).toFixed(1);
+  function parseTemp(val) {
+    const n = parseFloat(val);
+    if (isNaN(n)) return null;
+    return n < 50 ? +(n * 9 / 5 + 32).toFixed(1) : +n.toFixed(1);
+  }
 
   homekitLatest = {
-    tempF: isNaN(tempF) ? null : tempF,
-    heatSetF: heatSetF != null && !isNaN(heatSetF) ? +parseFloat(heatSetF).toFixed(1) : null,
-    coolSetF: coolSetF != null && !isNaN(coolSetF) ? +parseFloat(coolSetF).toFixed(1) : null,
-    humidity: body.humidity != null ? +parseFloat(body.humidity).toFixed(0) : null,
-    mode: body.mode || null,
-    hvacState: body.hvacState || null,
+    tempF: parseTemp(p.temperature ?? p.tempF),
+    heatSetF: parseTemp(p.heatSetF),
+    coolSetF: parseTemp(p.coolSetF),
+    humidity: p.humidity != null ? +parseFloat(p.humidity).toFixed(0) : null,
+    mode: p.mode || null,
+    hvacState: p.hvacState || null,
     receivedAt: Date.now(),
   };
   try { fs.writeFileSync(HOMEKIT_LATEST_FILE, JSON.stringify(homekitLatest)); } catch {}
   res.json({ ok: true });
-});
+}
+
+app.get('/api/homekit/push', handleHomekitPush);
+app.post('/api/homekit/push', handleHomekitPush);
 
 // Latest thermostat reading — dashboard auth
 app.get('/api/homekit/data', requireDashboardAuth, (_req, res) => {
