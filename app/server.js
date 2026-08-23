@@ -600,6 +600,78 @@ app.get('/api/ambient', async (req, res) => {
   }
 });
 
+// ── HomeKit thermostat push ───────────────────────────────────────────────────
+const HOMEKIT_CONFIG_FILE = path.join(DATA_DIR, 'homekit-config.json');
+const HOMEKIT_LATEST_FILE = path.join(DATA_DIR, 'homekit-latest.json');
+
+let homekitConfig = { token: '' };
+let homekitLatest = null;
+
+try {
+  if (fs.existsSync(HOMEKIT_CONFIG_FILE)) {
+    homekitConfig = JSON.parse(fs.readFileSync(HOMEKIT_CONFIG_FILE, 'utf8'));
+  }
+} catch {}
+
+if (!homekitConfig.token) {
+  homekitConfig.token = crypto.randomBytes(32).toString('hex');
+  try { fs.writeFileSync(HOMEKIT_CONFIG_FILE, JSON.stringify(homekitConfig)); } catch {}
+}
+
+try {
+  if (fs.existsSync(HOMEKIT_LATEST_FILE)) {
+    homekitLatest = JSON.parse(fs.readFileSync(HOMEKIT_LATEST_FILE, 'utf8'));
+  }
+} catch {}
+
+// Get push token — dashboard auth
+app.get('/api/homekit/config', requireDashboardAuth, (_req, res) => {
+  res.json({ token: homekitConfig.token });
+});
+
+// Regenerate push token — dashboard auth
+app.post('/api/homekit/config/regenerate', requireDashboardAuth, (_req, res) => {
+  homekitConfig.token = crypto.randomBytes(32).toString('hex');
+  try { fs.writeFileSync(HOMEKIT_CONFIG_FILE, JSON.stringify(homekitConfig)); } catch {}
+  res.json({ token: homekitConfig.token });
+});
+
+// Receive thermostat data from iOS Shortcut — token header auth
+app.post('/api/homekit/push', (req, res) => {
+  const token = req.headers['x-homekit-token'] || req.query.token;
+  if (!token || token !== homekitConfig.token) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const body = req.body || {};
+  // HomeKit reports temperatures in Celsius; auto-detect and convert
+  let tempF = parseFloat(body.tempF ?? body.temperature);
+  if (!isNaN(tempF) && tempF < 50) tempF = +(tempF * 9 / 5 + 32).toFixed(1);
+
+  let heatSetF = body.heatSetF != null ? parseFloat(body.heatSetF) : null;
+  if (heatSetF != null && heatSetF < 50) heatSetF = +(heatSetF * 9 / 5 + 32).toFixed(1);
+
+  let coolSetF = body.coolSetF != null ? parseFloat(body.coolSetF) : null;
+  if (coolSetF != null && coolSetF < 50) coolSetF = +(coolSetF * 9 / 5 + 32).toFixed(1);
+
+  homekitLatest = {
+    tempF: isNaN(tempF) ? null : tempF,
+    heatSetF: heatSetF != null && !isNaN(heatSetF) ? +parseFloat(heatSetF).toFixed(1) : null,
+    coolSetF: coolSetF != null && !isNaN(coolSetF) ? +parseFloat(coolSetF).toFixed(1) : null,
+    humidity: body.humidity != null ? +parseFloat(body.humidity).toFixed(0) : null,
+    mode: body.mode || null,
+    hvacState: body.hvacState || null,
+    receivedAt: Date.now(),
+  };
+  try { fs.writeFileSync(HOMEKIT_LATEST_FILE, JSON.stringify(homekitLatest)); } catch {}
+  res.json({ ok: true });
+});
+
+// Latest thermostat reading — dashboard auth
+app.get('/api/homekit/data', requireDashboardAuth, (_req, res) => {
+  if (!homekitLatest) return res.status(503).json({ error: 'No data yet' });
+  res.json(homekitLatest);
+});
+
 // ── Personal weather station proxy ────────────────────────────────────────────
 app.get('/api/pws', async (req, res) => {
   const { url } = req.query;
