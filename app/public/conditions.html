@@ -83,14 +83,22 @@ html, body {
   padding: 0.32rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: transparent;
-  transition: background .15s, border-color .15s, color .15s;
+  background: color-mix(in srgb, white 5%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: background .18s cubic-bezier(.2,0,0,1),
+              border-color .18s cubic-bezier(.2,0,0,1),
+              color .18s cubic-bezier(.2,0,0,1),
+              box-shadow .18s cubic-bezier(.2,0,0,1),
+              transform .1s cubic-bezier(.2,0,0,1);
 }
 .hdr-back:hover {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   border-color: var(--accent);
   color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
+.hdr-back:active { transform: scale(0.95); box-shadow: none; }
 .hdr-sep {
   color: var(--border);
   font-size: 0.8rem;
@@ -148,14 +156,27 @@ html, body {
   padding: 0.32rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: transparent;
-  transition: background .15s, border-color .15s, color .15s;
+  background: color-mix(in srgb, white 5%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: background .18s cubic-bezier(.2,0,0,1),
+              border-color .18s cubic-bezier(.2,0,0,1),
+              color .18s cubic-bezier(.2,0,0,1),
+              box-shadow .18s cubic-bezier(.2,0,0,1),
+              transform .1s cubic-bezier(.2,0,0,1);
 }
 .hdr-dash-link:hover {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   border-color: var(--accent);
   color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
+.hdr-dash-link:active { transform: scale(0.95); box-shadow: none; }
+.hdr-dash-link .arr {
+  display: inline-block;
+  transition: transform .18s cubic-bezier(.2,0,0,1);
+}
+.hdr-dash-link:hover .arr { transform: translateX(2px); }
 
 /* ── Hero ────────────────────────────────────────────────── */
 .hero {
@@ -372,7 +393,7 @@ canvas { display: block; }
   </div>
   <div class="hdr-live"><span class="live-dot"></span>Live</div>
   <div class="hdr-right">
-    <a href="/dashboard" class="hdr-dash-link">Dashboard →</a>
+    <a href="/dashboard" class="hdr-dash-link">Dashboard <span class="arr">→</span></a>
     <div class="hdr-time" id="hdrTime"></div>
   </div>
 </header>
