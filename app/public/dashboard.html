@@ -145,6 +145,8 @@ a { color: var(--cool); text-decoration: none; }
 .threshold-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 @media (max-width: 480px) { .threshold-row { grid-template-columns: 1fr; } }
 
+.hidden { display: none !important; }
+
 /* ── Section cards ── */
 .section-card { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 16px; padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
 .section-card-hdr { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-light); margin-bottom: 1.1rem; }
@@ -281,39 +283,72 @@ canvas.sparkline { display: block; width: 100%; height: 22px; margin-top: 0.4rem
     <div class="today-item"><span class="today-icon">💨</span><span class="today-val" id="todayGust">—</span><span class="today-lbl"> mph peak gust</span></div>
   </div>
 
-  <!-- Secondary stats: wind, rain -->
-  <div class="stats secondary" id="statsRow">
-    <div class="stat" id="statWindTile">
-      <div class="stat-label">Wind</div>
-      <div class="stat-val" id="sWind">—<span class="stat-trend" id="trWind"></span></div>
-      <div class="stat-unit">mph</div>
-      <div class="stat-unit" id="sWindDir" style="color:var(--ink-light)"></div>
-      <canvas class="sparkline" id="spWind"></canvas>
+  <!-- Wind section -->
+  <div class="section-card" style="margin-bottom:1rem">
+    <div class="section-card-hdr">Wind</div>
+    <div class="stats secondary" style="margin:0">
+      <div class="stat" id="statWindTile">
+        <div class="stat-label">Speed</div>
+        <div class="stat-val" id="sWind">—<span class="stat-trend" id="trWind"></span></div>
+        <div class="stat-unit">mph</div>
+        <div class="stat-unit" id="sWindDir" style="color:var(--ink-light)"></div>
+        <canvas class="sparkline" id="spWind"></canvas>
+      </div>
+      <div class="stat"><div class="stat-label">Gust</div><div class="stat-val" id="sGust">—</div><div class="stat-unit">mph</div></div>
+      <div class="stat"><div class="stat-label">Peak Gust Today</div><div class="stat-val" id="sMaxGust">—</div><div class="stat-unit">mph</div></div>
     </div>
-    <div class="stat"><div class="stat-label">Wind Gust</div><div class="stat-val" id="sGust">—</div><div class="stat-unit">mph</div></div>
-    <div class="stat"><div class="stat-label">Max Gust Today</div><div class="stat-val" id="sMaxGust">—</div><div class="stat-unit">mph</div></div>
-    <div class="stat" id="statRainTile"><div class="stat-label">Rain Today</div><div class="stat-val" id="sRain">—</div><div class="stat-unit">in</div></div>
-    <div class="stat" id="statRainRateTile"><div class="stat-label">Rain Rate</div><div class="stat-val" id="sRainRate">—</div><div class="stat-unit">in/hr</div></div>
   </div>
 
-  <!-- Totals & analytics -->
-  <div class="stats secondary" id="extStats">
-    <div class="stat"><div class="stat-label">Rain 7d</div><div class="stat-val" id="sRain7d">—</div><div class="stat-unit">in</div></div>
-    <div class="stat"><div class="stat-label">Rain 30d</div><div class="stat-val" id="sRain30d">—</div><div class="stat-unit">in</div></div>
-    <div class="stat"><div class="stat-label">Rain YTD</div><div class="stat-val" id="sRainYTD">—</div><div class="stat-unit">in</div></div>
-    <div class="stat" id="sEventRainTile" style="display:none"><div class="stat-label">Event Rain</div><div class="stat-val" id="sEventRain">—</div><div class="stat-unit">in</div></div>
-    <div class="stat" id="sTotalRainTile" style="display:none"><div class="stat-label">Total Rain</div><div class="stat-val" id="sTotalRain">—</div><div class="stat-unit">in lifetime</div></div>
-    <div class="stat"><div class="stat-label">Heating DD</div><div class="stat-val" id="sHDD">—</div><div class="stat-unit">this month</div></div>
-    <div class="stat"><div class="stat-label">Cooling DD</div><div class="stat-val" id="sCDD">—</div><div class="stat-unit">this month</div></div>
-    <div class="stat" id="sStreakTile" style="display:none">
-      <div class="stat-label">Current Streak</div>
-      <div class="stat-val" id="sStreak">—</div>
-      <div class="stat-unit" id="sStreakNote"></div>
+  <!-- Precipitation section -->
+  <div class="section-card" style="margin-bottom:1rem">
+    <div class="section-card-hdr">Precipitation</div>
+    <div class="stats secondary" style="margin:0">
+      <div class="stat" id="statRainTile"><div class="stat-label">Today</div><div class="stat-val" id="sRain">—</div><div class="stat-unit">in</div></div>
+      <div class="stat" id="statRainRateTile"><div class="stat-label">Rate</div><div class="stat-val" id="sRainRate">—</div><div class="stat-unit">in/hr</div></div>
+      <div class="stat"><div class="stat-label">7 Days</div><div class="stat-val" id="sRain7d">—</div><div class="stat-unit">in</div></div>
+      <div class="stat"><div class="stat-label">30 Days</div><div class="stat-val" id="sRain30d">—</div><div class="stat-unit">in</div></div>
+      <div class="stat"><div class="stat-label">Year to Date</div><div class="stat-val" id="sRainYTD">—</div><div class="stat-unit">in</div></div>
+      <div class="stat" id="sEventRainTile" style="display:none"><div class="stat-label">Event</div><div class="stat-val" id="sEventRain">—</div><div class="stat-unit">in</div></div>
+      <div class="stat" id="sTotalRainTile" style="display:none"><div class="stat-label">All Time</div><div class="stat-val" id="sTotalRain">—</div><div class="stat-unit">in</div></div>
+      <div class="stat" id="sStreakTile" style="display:none">
+        <div class="stat-label">Streak</div>
+        <div class="stat-val" id="sStreak">—</div>
+        <div class="stat-unit" id="sStreakNote"></div>
+      </div>
     </div>
-    <div class="stat" id="sAnomalyTile" style="display:none">
-      <div class="stat-label">Temp vs Normal</div>
-      <div class="stat-val" id="sAnomaly">—</div>
-      <div class="stat-unit" id="sAnomalyNote"></div>
+  </div>
+
+  <!-- Climate analytics -->
+  <div class="section-card" style="margin-bottom:1rem">
+    <div class="section-card-hdr">Climate</div>
+    <div class="stats secondary" style="margin:0">
+      <div class="stat"><div class="stat-label">Heating DD</div><div class="stat-val" id="sHDD">—</div><div class="stat-unit">this month</div></div>
+      <div class="stat"><div class="stat-label">Cooling DD</div><div class="stat-val" id="sCDD">—</div><div class="stat-unit">this month</div></div>
+      <div class="stat" id="sAnomalyTile" style="display:none">
+        <div class="stat-label">Temp vs Normal</div>
+        <div class="stat-val" id="sAnomaly">—</div>
+        <div class="stat-unit" id="sAnomalyNote"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Indoor (shown only when PWS provides indoor sensor data) -->
+  <div class="section-card hidden" id="indoorSection" style="margin-bottom:1rem">
+    <div class="section-card-hdr" style="display:flex;align-items:center;justify-content:space-between">
+      Indoor
+      <a href="https://www.ecobee.com/consumerportal/index.html#/devices/thermostats/440785466129" target="_blank" rel="noopener" style="font-size:0.75rem;font-weight:400;text-transform:none;letter-spacing:0;color:var(--cool)">Ecobee →</a>
+    </div>
+    <div class="stats secondary" style="margin:0">
+      <div class="stat">
+        <div class="stat-label">Temperature</div>
+        <div class="stat-val" id="sTempIn">—</div>
+        <div class="stat-unit">°F</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Humidity</div>
+        <div class="stat-val" id="sHumIn">—</div>
+        <div class="stat-unit">%</div>
+      </div>
     </div>
   </div>
 
@@ -823,8 +858,15 @@ async function updateLatest() {
     set('sSolar', d.solarradiation, 0);
     set('sBatt', d.battout != null ? (d.battout === 1 ? 'OK' : 'Low') : '—', 0);
 
-    // Max daily gust
     if (d.maxdailygust != null) set('sMaxGust', d.maxdailygust);
+
+    // Indoor sensor (Ambient stations with indoor probe)
+    if (d.tempinf != null) {
+      set('sTempIn', d.tempinf);
+      set('sHumIn', d.humidityin, 0);
+      const sec = document.getElementById('indoorSection');
+      if (sec) sec.classList.remove('hidden');
+    }
 
     // Ambient rain accumulators
     if (d.eventrainin != null && d.eventrainin > 0) {

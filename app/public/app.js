@@ -2975,6 +2975,14 @@ function applyStationOverlay(device) {
 
   if (data.uv != null) setEl('cur-uv', data.uv);
 
+  const indoorCard = document.getElementById('st-indoor-card');
+  if (data.tempinf != null) {
+    setEl('st-tempin', fmtTemp(data.tempinf));
+    setEl('st-tempin-unit', isMetric ? 'C' : 'F');
+    setEl('st-humin', data.humidityin != null ? `${data.humidityin}% RH` : '');
+    if (indoorCard) indoorCard.classList.remove('hidden');
+  }
+
   // Rain summary in hero sub-line
   const rainEl = document.getElementById('cur-precip');
   if (rainEl && data.dailyrainin != null) {
