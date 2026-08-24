@@ -24,7 +24,8 @@ html, body { min-height: 100%; background: var(--paper); color: var(--ink); font
 a { color: var(--cool); text-decoration: none; }
 
 /* ── Header ── */
-.header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); background: var(--paper-dark); position: sticky; top: 0; z-index: 10; }
+.header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--paper-dark) 82%, transparent); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); position: sticky; top: 0; z-index: 10; transition: box-shadow .25s; }
+.header.scrolled { box-shadow: 0 4px 24px rgba(0,0,0,0.18); }
 .header h1 { font-size: 1.15rem; }
 .header .meta { font-size: 0.8rem; color: var(--ink-light); }
 .header-right { display: flex; align-items: center; gap: 1rem; font-size: 0.85rem; }
@@ -59,7 +60,11 @@ a { color: var(--cool); text-decoration: none; }
 
 /* ── Stat tiles ── */
 .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1.75rem; }
-.stat { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem; }
+.stat {
+  background: var(--paper-dark); border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem;
+  transition: transform .18s cubic-bezier(.2,0,0,1), box-shadow .18s cubic-bezier(.2,0,0,1);
+}
+.stat:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.14); }
 .stat-label { font-size: 0.72rem; color: var(--ink-light); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.2rem; }
 .stat-val { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
 .stat-unit { font-size: 0.75rem; color: var(--ink-light); margin-top: 0.1rem; }
@@ -232,7 +237,13 @@ a { color: var(--cool); text-decoration: none; }
 .hidden { display: none !important; }
 
 /* ── Section cards ── */
-.section-card { background: var(--paper-dark); border: 1px solid var(--border); border-radius: 16px; padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
+.section-card {
+  border-radius: 16px; padding: 1.25rem 1.5rem; margin-bottom: 1rem;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--paper-dark), var(--paper-dark)) padding-box,
+    linear-gradient(140deg, color-mix(in srgb, var(--accent) 40%, var(--border)), var(--border) 50%, color-mix(in srgb, var(--cool) 38%, var(--border))) border-box;
+}
 .section-card-hdr { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-light); margin-bottom: 1.1rem; }
 
 /* ── Hero ── */
@@ -285,8 +296,54 @@ canvas.sparkline { display: block; width: 100%; height: 22px; margin-top: 0.4rem
 /* ── Updated chart look ── */
 .chart-wrap { position: relative; height: 240px; }
 .chart-card.wide .chart-wrap { height: 160px; }
-.chart-card { transition: box-shadow 0.15s; }
-.chart-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+.chart-card {
+  transition: transform .18s cubic-bezier(.2,0,0,1), box-shadow .18s cubic-bezier(.2,0,0,1);
+}
+.chart-card:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.12); }
+
+/* ── Today bar hover ── */
+.today-bar { transition: transform .18s cubic-bezier(.2,0,0,1), box-shadow .18s cubic-bezier(.2,0,0,1); }
+.today-bar:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
+
+/* ── Live dot ── */
+.live-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: #3cba6e; margin-right: 5px;
+  vertical-align: middle; position: relative; bottom: 1px;
+  animation: live-pulse 2.4s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%,100% { opacity:1; transform:scale(1); }
+  50%      { opacity:.35; transform:scale(.65); }
+}
+
+/* ── Skeleton shimmer ── */
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+.stat.loading .stat-val {
+  background: linear-gradient(90deg, var(--border) 25%, var(--paper-darker) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+  color: transparent !important;
+  border-radius: 4px; min-width: 48px; display: inline-block;
+}
+.stat.loading .stat-unit { opacity: 0; }
+
+/* ── Value flash on data update ── */
+@keyframes val-flash {
+  0% { opacity: 0.15; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.val-flash { animation: val-flash .4s cubic-bezier(.2,0,0,1); }
+
+/* ── Record best highlight ── */
+.record-item.record-best {
+  border-color: rgba(255,195,0,0.65);
+  box-shadow: 0 0 0 2px rgba(255,195,0,0.12);
+}
+.record-best .record-label::after { content: ' ★'; color: #ffc300; }
 </style>
 </head>
 <body>
@@ -714,8 +771,7 @@ function drawWindRose(canvas, readings) {
     buckets[Math.round(r.winddir / 22.5) % 16]++;
   }
   const max = Math.max(...buckets, 1);
-  const c = canvas.getContext('2d');
-  // Context is pre-scaled by DPR — use CSS dimensions for all coordinates
+  const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.width / dpr, H = canvas.height / dpr;
   const cx = W / 2, cy = H / 2;
@@ -725,56 +781,46 @@ function drawWindRose(canvas, readings) {
   const colAccent = style.getPropertyValue('--accent').trim();
   const colInk = style.getPropertyValue('--ink').trim();
   const colInkLight = style.getPropertyValue('--ink-light').trim();
-
-  c.clearRect(0, 0, W, H);
-
-  // grid circles
-  for (let i = 1; i <= 4; i++) {
-    c.beginPath();
-    c.arc(cx, cy, R * i / 4, 0, Math.PI * 2);
-    c.strokeStyle = colBorder + '66';
-    c.lineWidth = 0.5;
-    c.stroke();
-  }
-  // cardinal lines
-  ['N','E','S','W'].forEach((dir, i) => {
-    const a = i * Math.PI / 2 - Math.PI / 2;
-    c.beginPath();
-    c.moveTo(cx, cy);
-    c.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
-    c.strokeStyle = colBorder + '88';
-    c.lineWidth = 0.5;
-    c.stroke();
-    const tx = cx + Math.cos(a) * (R + 12);
-    const ty = cy + Math.sin(a) * (R + 12);
-    c.fillStyle = colInkLight;
-    c.font = '10px sans-serif';
-    c.textAlign = 'center';
-    c.textBaseline = 'middle';
-    c.fillText(dir, tx, ty);
-  });
-
-  // petals
   const sliceAngle = (Math.PI * 2) / 16;
-  for (let i = 0; i < 16; i++) {
-    const a = i * sliceAngle - Math.PI / 2 - sliceAngle / 2;
-    const len = (buckets[i] / max) * R;
-    if (len < 1) continue;
-    c.beginPath();
-    c.moveTo(cx, cy);
-    c.arc(cx, cy, len, a, a + sliceAngle);
-    c.closePath();
-    c.fillStyle = colAccent + 'cc';
-    c.fill();
-    c.strokeStyle = colAccent;
-    c.lineWidth = 0.5;
-    c.stroke();
+
+  function drawFrame(progress) {
+    ctx.clearRect(0, 0, W, H);
+    // grid circles
+    for (let i = 1; i <= 4; i++) {
+      ctx.beginPath(); ctx.arc(cx, cy, R * i / 4, 0, Math.PI * 2);
+      ctx.strokeStyle = colBorder + '66'; ctx.lineWidth = 0.5; ctx.stroke();
+    }
+    // cardinal lines + labels
+    ['N','E','S','W'].forEach((dir, i) => {
+      const a = i * Math.PI / 2 - Math.PI / 2;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+      ctx.strokeStyle = colBorder + '88'; ctx.lineWidth = 0.5; ctx.stroke();
+      ctx.fillStyle = colInkLight; ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(dir, cx + Math.cos(a) * (R + 12), cy + Math.sin(a) * (R + 12));
+    });
+    // petals
+    for (let i = 0; i < 16; i++) {
+      const a = i * sliceAngle - Math.PI / 2 - sliceAngle / 2;
+      const len = (buckets[i] / max) * R * progress;
+      if (len < 1) continue;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, len, a, a + sliceAngle); ctx.closePath();
+      ctx.fillStyle = colAccent + 'cc'; ctx.fill();
+      ctx.strokeStyle = colAccent; ctx.lineWidth = 0.5; ctx.stroke();
+    }
+    // center dot
+    ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+    ctx.fillStyle = colInk; ctx.fill();
   }
-  // center dot
-  c.beginPath();
-  c.arc(cx, cy, 3, 0, Math.PI * 2);
-  c.fillStyle = colInk;
-  c.fill();
+
+  // Animate petals growing in over 650ms
+  const dur = 650, t0 = performance.now();
+  (function animate(now) {
+    const p = Math.min((now - t0) / dur, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    drawFrame(ease);
+    if (p < 1) requestAnimationFrame(animate);
+  })(t0);
 }
 
 // ── Render charts ────────────────────────────────────────────────────────────
@@ -929,10 +975,33 @@ async function updateLatest() {
 
     const set = (id, val, digits = 1) => {
       const el = document.getElementById(id);
-      if (el) el.textContent = val != null ? (typeof val === 'number' ? val.toFixed(digits) : val) : '—';
+      if (!el) return;
+      const text = val != null ? (typeof val === 'number' ? val.toFixed(digits) : String(val)) : '—';
+      // Preserve child elements (trend spans) by only updating the leading text node
+      const tn = el.firstChild;
+      if (tn && tn.nodeType === 3) tn.textContent = text;
+      else el.textContent = text;
     };
 
-    set('sTempF', d.tempf);
+    // Count-up animation for hero temperature
+    const animateHeroTemp = (val, digits = 1) => {
+      const el = document.getElementById('sTempF');
+      if (!el || val == null || typeof val !== 'number') { set('sTempF', val, digits); return; }
+      const tn = el.firstChild && el.firstChild.nodeType === 3 ? el.firstChild : null;
+      const from = tn ? (parseFloat(tn.textContent) || val) : val;
+      const diff = val - from;
+      if (Math.abs(diff) < 0.05) { if (tn) tn.textContent = val.toFixed(digits); return; }
+      const dur = 700, t0 = performance.now();
+      (function step(now) {
+        const p = Math.min((now - t0) / dur, 1);
+        const ease = 1 - Math.pow(1 - p, 3);
+        const text = (from + diff * ease).toFixed(digits);
+        if (tn) tn.textContent = text; else el.textContent = text;
+        if (p < 1) requestAnimationFrame(step);
+      })(t0);
+    };
+
+    animateHeroTemp(d.tempf);
     set('sFeels', d.feelsLike ?? d.tempf);
     set('sHum', d.humidity, 0);
     set('sDew', d.dewPoint);
@@ -981,12 +1050,23 @@ async function updateLatest() {
 
     colorTiles(d);
 
+    // Remove skeleton shimmer now that data has arrived
+    document.querySelectorAll('.stat.loading').forEach(s => s.classList.remove('loading'));
+
+    // Flash stat values on update
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.stat-val, .hero-temp, .hero-stat-val').forEach(el => {
+        el.classList.remove('val-flash');
+        requestAnimationFrame(() => el.classList.add('val-flash'));
+      });
+    });
+
     const name = document.getElementById('stationName');
     if (name && d.PASSKEY) name.textContent = '';
 
     const meta = document.getElementById('headerMeta');
     if (meta && d.dateutc) {
-      meta.textContent = 'Updated ' + new Date(d.dateutc).toLocaleTimeString();
+      meta.innerHTML = '<span class="live-dot"></span>Updated ' + new Date(d.dateutc).toLocaleTimeString();
     }
     updateOfflineBanner(d.dateutc || null);
   } catch {}
@@ -1202,20 +1282,25 @@ async function loadRecords() {
       const d = await r.json();
       if (!d) { body.innerHTML = '<div class="status">No data recorded yet.</div>'; return; }
       const since = d.firstReading ? `${d.totalReadings.toLocaleString()} readings since ${fmtDate(d.firstReading)}` : '';
+      const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+      const ri = (label, val, date) => {
+        const recent = date && new Date(date).getTime() > cutoff;
+        return `<div class="record-item${recent ? ' record-best' : ''}"><div class="record-label">${label}</div><div class="record-val">${val}</div><div class="record-date">${fmtDate(date)}</div></div>`;
+      };
       body.innerHTML = `
         <p style="font-size:0.8rem;color:var(--ink-light);margin-bottom:0.75rem">${since}</p>
         <div class="records-grid">
-          <div class="record-item"><div class="record-label">Hottest</div><div class="record-val">${d.highTemp != null ? d.highTemp.toFixed(1) + '°F' : '—'}</div><div class="record-date">${fmtDate(d.highTempDate)}</div></div>
-          <div class="record-item"><div class="record-label">Coldest</div><div class="record-val">${d.lowTemp != null ? d.lowTemp.toFixed(1) + '°F' : '—'}</div><div class="record-date">${fmtDate(d.lowTempDate)}</div></div>
-          <div class="record-item"><div class="record-label">Highest Gust</div><div class="record-val">${d.highGust != null ? d.highGust.toFixed(1) + ' mph' : '—'}</div><div class="record-date">${fmtDate(d.highGustDate)}</div></div>
-          <div class="record-item"><div class="record-label">Highest Rain Rate</div><div class="record-val">${d.highRainRate != null ? d.highRainRate.toFixed(2) + ' in/hr' : '—'}</div><div class="record-date">${fmtDate(d.highRainRateDate)}</div></div>
-          <div class="record-item"><div class="record-label">Wettest Day</div><div class="record-val">${d.highDailyRain != null ? d.highDailyRain.toFixed(2) + '"' : '—'}</div><div class="record-date">${fmtDate(d.highDailyRainDate)}</div></div>
-          <div class="record-item"><div class="record-label">Highest UV</div><div class="record-val">${d.highUV != null ? d.highUV.toFixed(0) : '—'}</div><div class="record-date">${fmtDate(d.highUVDate)}</div></div>
-          <div class="record-item"><div class="record-label">Peak Solar</div><div class="record-val">${d.highSolar != null ? d.highSolar.toFixed(0) + ' W/m²' : '—'}</div><div class="record-date">${fmtDate(d.highSolarDate)}</div></div>
-          <div class="record-item"><div class="record-label">Highest Pressure</div><div class="record-val">${d.highPressure != null ? d.highPressure.toFixed(2) + ' inHg' : '—'}</div><div class="record-date">${fmtDate(d.highPressureDate)}</div></div>
-          <div class="record-item"><div class="record-label">Lowest Pressure</div><div class="record-val">${d.lowPressure != null ? d.lowPressure.toFixed(2) + ' inHg' : '—'}</div><div class="record-date">${fmtDate(d.lowPressureDate)}</div></div>
-          <div class="record-item"><div class="record-label">Highest Humidity</div><div class="record-val">${d.highHumidity != null ? d.highHumidity + '%' : '—'}</div><div class="record-date">${fmtDate(d.highHumidityDate)}</div></div>
-          <div class="record-item"><div class="record-label">Lowest Humidity</div><div class="record-val">${d.lowHumidity != null ? d.lowHumidity + '%' : '—'}</div><div class="record-date">${fmtDate(d.lowHumidityDate)}</div></div>
+          ${ri('Hottest', d.highTemp != null ? d.highTemp.toFixed(1) + '°F' : '—', d.highTempDate)}
+          ${ri('Coldest', d.lowTemp != null ? d.lowTemp.toFixed(1) + '°F' : '—', d.lowTempDate)}
+          ${ri('Highest Gust', d.highGust != null ? d.highGust.toFixed(1) + ' mph' : '—', d.highGustDate)}
+          ${ri('Highest Rain Rate', d.highRainRate != null ? d.highRainRate.toFixed(2) + ' in/hr' : '—', d.highRainRateDate)}
+          ${ri('Wettest Day', d.highDailyRain != null ? d.highDailyRain.toFixed(2) + '"' : '—', d.highDailyRainDate)}
+          ${ri('Highest UV', d.highUV != null ? d.highUV.toFixed(0) : '—', d.highUVDate)}
+          ${ri('Peak Solar', d.highSolar != null ? d.highSolar.toFixed(0) + ' W/m²' : '—', d.highSolarDate)}
+          ${ri('Highest Pressure', d.highPressure != null ? d.highPressure.toFixed(2) + ' inHg' : '—', d.highPressureDate)}
+          ${ri('Lowest Pressure', d.lowPressure != null ? d.lowPressure.toFixed(2) + ' inHg' : '—', d.lowPressureDate)}
+          ${ri('Highest Humidity', d.highHumidity != null ? d.highHumidity + '%' : '—', d.highHumidityDate)}
+          ${ri('Lowest Humidity', d.lowHumidity != null ? d.lowHumidity + '%' : '—', d.lowHumidityDate)}
         </div>`;
     } catch { document.getElementById('recordsBody').innerHTML = '<div class="status error">Failed to load records.</div>'; }
   }, { once: false });
@@ -1627,6 +1712,14 @@ document.getElementById('saveLocBtn')?.addEventListener('click', async () => {
     setTimeout(() => msg.textContent = '', 3000);
   } catch { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
 });
+
+// ── Scroll handler: add blur shadow to sticky header ─────────────────────────
+window.addEventListener('scroll', () => {
+  document.querySelector('.header').classList.toggle('scrolled', window.scrollY > 5);
+}, { passive: true });
+
+// ── Skeleton: shimmer stat tiles until first data arrives ─────────────────────
+document.querySelectorAll('.stat').forEach(s => s.classList.add('loading'));
 
 // ── Init all new features ─────────────────────────────────────────────────────
 updateLatest();
