@@ -117,17 +117,21 @@ a:hover { text-decoration: underline; }
 .station-link {
   font-size: 0.78rem;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--card-sub);
   text-decoration: none;
-  opacity: .85;
-  padding: 0.2rem 0.5rem;
+  padding: 0.35rem 0.85rem;
   border: 1px solid var(--border);
-  border-radius: 5px;
-  transition: opacity .15s, background .15s;
+  border-radius: 8px;
+  background: transparent;
+  transition: background .15s, border-color .15s, color .15s;
 }
-.station-link:hover { opacity: 1; background: var(--card-bg-soft); }
+.station-link:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
 
 .settings-nav-links {
   display: flex;

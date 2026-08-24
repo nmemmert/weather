@@ -29,7 +29,22 @@ a { color: var(--cool); text-decoration: none; }
 .header .meta { font-size: 0.8rem; color: var(--ink-light); }
 .header-right { display: flex; align-items: center; gap: 1rem; font-size: 0.85rem; }
 .station-name { color: var(--cool); font-weight: 600; }
-.logout { color: var(--accent); }
+.logout {
+  color: var(--ink-light);
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.32rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.logout:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
 
 /* ── Wrapper ── */
 .page { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
