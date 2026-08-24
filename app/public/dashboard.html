@@ -630,7 +630,9 @@ function drawWindRose(canvas, readings) {
   }
   const max = Math.max(...buckets, 1);
   const c = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  // Context is pre-scaled by DPR — use CSS dimensions for all coordinates
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.width / dpr, H = canvas.height / dpr;
   const cx = W / 2, cy = H / 2;
   const R = Math.min(cx, cy) - 24;
   const style = getComputedStyle(document.documentElement);
@@ -871,11 +873,13 @@ async function updateLatest() {
     // Ambient rain accumulators
     if (d.eventrainin != null && d.eventrainin > 0) {
       set('sEventRain', d.eventrainin, 2);
-      document.getElementById('sEventRainTile').style.display = '';
+      const evTile = document.getElementById('sEventRainTile');
+      if (evTile) evTile.style.display = '';
     }
     if (d.totalrainin != null) {
       set('sTotalRain', d.totalrainin, 2);
-      document.getElementById('sTotalRainTile').style.display = '';
+      const totTile = document.getElementById('sTotalRainTile');
+      if (totTile) totTile.style.display = '';
     }
 
     // Hero wind line
@@ -888,7 +892,7 @@ async function updateLatest() {
     }
     // Wind direction on secondary tile
     const windDirEl = document.getElementById('sWindDir');
-    if (windDirEl && d.winddir != null) windDirEl.textContent = cardinal(d.winddir);
+    if (windDirEl) windDirEl.textContent = d.winddir != null ? cardinal(d.winddir) : '—';
 
     colorTiles(d);
 
