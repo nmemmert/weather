@@ -119,12 +119,28 @@ html, body {
   0%,100% { opacity:1; transform:scale(1); }
   50%      { opacity:.45; transform:scale(.8); }
 }
+.hdr-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
 .hdr-time {
   font-size: 0.78rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.hdr-dash-link {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  opacity: .85;
+  transition: opacity .15s;
+}
+.hdr-dash-link:hover { opacity: 1; }
 
 /* ── Hero ────────────────────────────────────────────────── */
 .hero {
@@ -340,7 +356,10 @@ canvas { display: block; }
     <span class="hdr-station" id="stationName">Genesis 8:22</span>
   </div>
   <div class="hdr-live"><span class="live-dot"></span>Live</div>
-  <div class="hdr-time" id="hdrTime"></div>
+  <div class="hdr-right">
+    <a href="/dashboard" class="hdr-dash-link">Dashboard →</a>
+    <div class="hdr-time" id="hdrTime"></div>
+  </div>
 </header>
 
 <section class="hero">
