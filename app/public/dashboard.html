@@ -179,19 +179,6 @@ a { color: var(--cool); text-decoration: none; }
 .today-lbl { font-size: 0.75rem; color: var(--ink-light); }
 
 /* ── Ecobee section ── */
-.hvac-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
-.hvac-heating { background: rgba(194,90,42,0.18); color: var(--accent); border: 1px solid var(--accent); }
-.hvac-cooling { background: rgba(42,107,138,0.18); color: var(--cool); border: 1px solid var(--cool); }
-.hvac-fan     { background: rgba(42,107,138,0.1);  color: var(--cool); border: 1px solid var(--border); }
-.hvac-idle    { background: var(--paper-darker); color: var(--ink-light); border: 1px solid var(--border); }
-.ecobee-sensors { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
-.sensor-chip { background: var(--paper); border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.7rem; font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; }
-.sensor-chip-name { color: var(--ink-light); font-size: 0.72rem; }
-.sensor-chip-val  { font-weight: 700; }
-.ecobee-row { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; }
-.ecobee-main { flex: 0 0 auto; min-width: 120px; }
-.ecobee-setpoints { display: flex; gap: 1rem; margin-top: 0.4rem; font-size: 0.85rem; color: var(--ink-light); }
-.ecobee-setpoints strong { color: var(--ink); }
 
 /* ── Tile color tints ── */
 .stat-hot  { border-color: rgba(220,80,30,0.55) !important; background: rgba(220,80,30,0.07) !important; }
@@ -294,7 +281,7 @@ canvas.sparkline { display: block; width: 100%; height: 22px; margin-top: 0.4rem
     <div class="today-item"><span class="today-icon">💨</span><span class="today-val" id="todayGust">—</span><span class="today-lbl"> mph peak gust</span></div>
   </div>
 
-  <!-- Secondary stats: wind, rain, indoor -->
+  <!-- Secondary stats: wind, rain -->
   <div class="stats secondary" id="statsRow">
     <div class="stat" id="statWindTile">
       <div class="stat-label">Wind</div>
@@ -307,10 +294,6 @@ canvas.sparkline { display: block; width: 100%; height: 22px; margin-top: 0.4rem
     <div class="stat"><div class="stat-label">Max Gust Today</div><div class="stat-val" id="sMaxGust">—</div><div class="stat-unit">mph</div></div>
     <div class="stat" id="statRainTile"><div class="stat-label">Rain Today</div><div class="stat-val" id="sRain">—</div><div class="stat-unit">in</div></div>
     <div class="stat" id="statRainRateTile"><div class="stat-label">Rain Rate</div><div class="stat-val" id="sRainRate">—</div><div class="stat-unit">in/hr</div></div>
-    <div class="stat" id="indoorTempTile" style="display:none"><div class="stat-label">Temp In</div><div class="stat-val" id="sTempIn">—</div><div class="stat-unit">°F</div></div>
-    <div class="stat" id="indoorFeelsTile" style="display:none"><div class="stat-label">Feels Like In</div><div class="stat-val" id="sFeelsIn">—</div><div class="stat-unit">°F</div></div>
-    <div class="stat" id="indoorHumTile" style="display:none"><div class="stat-label">Humidity In</div><div class="stat-val" id="sHumIn">—</div><div class="stat-unit">%</div></div>
-    <div class="stat" id="indoorDewTile" style="display:none"><div class="stat-label">Dew Point In</div><div class="stat-val" id="sDewIn">—</div><div class="stat-unit">°F</div></div>
   </div>
 
   <!-- Totals & analytics -->
@@ -331,29 +314,6 @@ canvas.sparkline { display: block; width: 100%; height: 22px; margin-top: 0.4rem
       <div class="stat-label">Temp vs Normal</div>
       <div class="stat-val" id="sAnomaly">—</div>
       <div class="stat-unit" id="sAnomalyNote"></div>
-    </div>
-  </div>
-
-  <!-- Thermostat (HomeKit push) -->
-  <div class="section-card" id="ecobeeSection" style="display:none">
-    <div class="section-card-hdr" style="display:flex;align-items:center;gap:0.75rem">
-      Thermostat
-      <span id="ecobeeBadge" class="hvac-badge hvac-idle">—</span>
-      <span style="font-size:0.72rem;color:var(--ink-light);margin-left:auto" id="ecobeeUpdated"></span>
-    </div>
-    <div class="ecobee-row">
-      <div class="ecobee-main">
-        <div class="hero-temp-row">
-          <div class="hero-temp" id="ecobeeTempF" style="font-size:3.5rem">—</div>
-          <div class="hero-temp-unit" style="font-size:1.4rem;margin-top:0.4rem">°F</div>
-        </div>
-        <div class="ecobee-setpoints">
-          <span>Heat: <strong id="ecobeeHeatSet">—</strong>°</span>
-          <span>Cool: <strong id="ecobeeCoolSet">—</strong>°</span>
-        </div>
-        <div style="margin-top:0.35rem;font-size:0.82rem;color:var(--ink-light)">Humidity: <strong id="ecobeeHum">—</strong>%</div>
-        <div style="margin-top:0.25rem;font-size:0.82rem;color:var(--ink-light)">Mode: <strong id="ecobeeMode">—</strong></div>
-      </div>
     </div>
   </div>
 
@@ -400,43 +360,6 @@ canvas.sparkline { display: block; width: 100%; height: 22px; margin-top: 0.4rem
     <summary>Temperature Calendar</summary>
     <div class="settings-body" id="heatmapBody">
       <div class="status">Loading…</div>
-    </div>
-  </details>
-
-  <!-- HomeKit Thermostat Push Settings -->
-  <details class="settings-panel" id="ecobeeSettingsPanel" style="margin-top:1rem">
-    <summary>Thermostat (HomeKit Push) Setup</summary>
-    <div class="settings-body">
-      <p id="ecobeeConfigStatus" class="keys-status"></p>
-
-      <div class="settings-section-hdr">iOS Shortcut Push URL</div>
-      <p class="keys-hint" style="margin:0 0 0.5rem">Configure your iOS Shortcut to POST thermostat data to this URL:</p>
-      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;max-width:560px">
-        <input id="homekitPushUrl" type="text" readonly style="flex:1;font-family:monospace;font-size:0.8rem">
-        <button id="homekitCopyUrlBtn">Copy</button>
-      </div>
-
-      <div class="settings-section-hdr">Auth Token</div>
-      <p class="keys-hint" style="margin:0 0 0.5rem">Include this as the <code style="background:var(--paper-darker);padding:0.1rem 0.3rem;border-radius:4px">x-homekit-token</code> header in your Shortcut's URL request:</p>
-      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;max-width:560px">
-        <input id="homekitTokenDisplay" type="text" readonly style="flex:1;font-family:monospace;font-size:0.8rem">
-        <button id="homekitCopyTokenBtn">Copy</button>
-        <button id="homekitRegenBtn">Regenerate</button>
-      </div>
-      <span id="homekitRegenMsg" class="save-msg"></span>
-
-      <hr class="settings-divider">
-
-      <div class="settings-section-hdr">iOS Shortcut Setup</div>
-      <ol class="keys-hint" style="margin:0;padding-left:1.4rem;line-height:2">
-        <li>Open <strong>Shortcuts</strong> → tap <strong>+</strong> to create a new shortcut</li>
-        <li>Add <strong>Get my HomeKit value for</strong> → select your thermostat → <strong>Current Temperature</strong> → save as variable <em>temp</em></li>
-        <li>Repeat for <strong>Target Temperature</strong> (save as <em>targetTemp</em>) and <strong>Current Relative Humidity</strong> (save as <em>humidity</em>)</li>
-        <li>Add <strong>Get contents of URL</strong> → paste the Push URL above → Method: <strong>POST</strong></li>
-        <li>Add header: <code style="background:var(--paper-darker);padding:0.1rem 0.3rem;border-radius:4px">x-homekit-token</code> = (paste your token)</li>
-        <li>Request Body: <strong>JSON</strong> → add keys: <code style="background:var(--paper-darker);padding:0.1rem 0.3rem;border-radius:4px">temperature</code>=<em>temp</em>, <code style="background:var(--paper-darker);padding:0.1rem 0.3rem;border-radius:4px">heatSetF</code>=<em>targetTemp</em>, <code style="background:var(--paper-darker);padding:0.1rem 0.3rem;border-radius:4px">humidity</code>=<em>humidity</em></li>
-        <li>Go to <strong>Automation</strong> tab → <strong>+</strong> → <strong>Time of Day</strong> → set repeat every 5 min → run this shortcut (no notification)</li>
-      </ol>
     </div>
   </details>
 
@@ -810,15 +733,6 @@ function renderCharts(readings, range, yoy = null) {
         <div class="chart-wrap"><canvas id="cSolar"></canvas></div>
       </div>
 
-      ${pts.some(r => r.tempinf != null) ? `
-      <div class="chart-card">
-        <div class="chart-title">Indoor Temperature & Dew Point (°F)</div>
-        <div class="chart-wrap"><canvas id="cTempIn"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">Indoor Humidity (%)</div>
-        <div class="chart-wrap"><canvas id="cHumIn"></canvas></div>
-      </div>` : ''}
     </div>
   `;
 
@@ -866,23 +780,6 @@ function renderCharts(readings, range, yoy = null) {
     [lineDataset('Solar W/m²', field(pts, 'solarradiation'), c.accent)],
     lbls, 'W/m²', { scales: { y: { min: 0 } } });
 
-  if (pts.some(r => r.tempinf != null)) {
-    const indoorDp = pts.map(r => {
-      if (r.tempinf == null || r.humidityin == null) return null;
-      const Tc = (r.tempinf - 32) * 5 / 9, RH = r.humidityin;
-      const dp = (243.04 * (Math.log(RH / 100) + 17.625 * Tc / (243.04 + Tc))) /
-                 (17.625 - Math.log(RH / 100) - 17.625 * Tc / (243.04 + Tc));
-      return +(dp * 9 / 5 + 32).toFixed(1);
-    });
-    makeChart('cTempIn', 'line',
-      [lineDataset('Temp In °F', field(pts, 'tempinf'), c.accent),
-       lineDataset('Dew Point In', indoorDp, c.cool, true)],
-      lbls, '°F');
-    makeChart('cHumIn', 'line',
-      [lineDataset('Humidity In %', field(pts, 'humidityin'), c.cool)],
-      lbls, '%', { scales: { y: { min: 0, max: 100 } } });
-  }
-
   // Today bar + sparklines use full readings (not downsampled pts)
   updateTodayBar(readings);
   updateSparklines(readings);
@@ -928,24 +825,6 @@ async function updateLatest() {
 
     // Max daily gust
     if (d.maxdailygust != null) set('sMaxGust', d.maxdailygust);
-
-    // Indoor sensors
-    if (d.tempinf != null) {
-      set('sTempIn', d.tempinf);
-      document.getElementById('indoorTempTile').style.display = '';
-    }
-    if (d.feelsLikein != null) {
-      set('sFeelsIn', d.feelsLikein, 0);
-      document.getElementById('indoorFeelsTile').style.display = '';
-    }
-    if (d.humidityin != null) {
-      set('sHumIn', d.humidityin, 0);
-      document.getElementById('indoorHumTile').style.display = '';
-    }
-    if (d.dewPointin != null) {
-      set('sDewIn', d.dewPointin);
-      document.getElementById('indoorDewTile').style.display = '';
-    }
 
     // Ambient rain accumulators
     if (d.eventrainin != null && d.eventrainin > 0) {
@@ -1618,94 +1497,6 @@ document.getElementById('saveLocBtn')?.addEventListener('click', async () => {
   } catch { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
 });
 
-// ── HomeKit thermostat push ───────────────────────────────────────────────────
-function hvacBadge(hvacState) {
-  if (!hvacState) return { text: 'Idle', cls: 'hvac-idle' };
-  const s = hvacState.toLowerCase();
-  if (s.includes('cool')) return { text: 'Cooling', cls: 'hvac-cooling' };
-  if (s.includes('heat')) return { text: 'Heating', cls: 'hvac-heating' };
-  if (s.includes('fan'))  return { text: 'Fan', cls: 'hvac-fan' };
-  return { text: 'Idle', cls: 'hvac-idle' };
-}
-
-async function loadHomekitData() {
-  const section = document.getElementById('ecobeeSection');
-  try {
-    const r = await fetch('/api/homekit/data');
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d.tempF == null) return;
-
-    section.style.display = '';
-    const set = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.textContent = val; };
-    set('ecobeeTempF', d.tempF != null ? d.tempF.toFixed(1) : '—');
-    set('ecobeeHeatSet', d.heatSetF != null ? d.heatSetF.toFixed(0) : '—');
-    set('ecobeeCoolSet', d.coolSetF != null ? d.coolSetF.toFixed(0) : '—');
-    set('ecobeeHum', d.humidity ?? '—');
-    set('ecobeeMode', d.mode ?? '—');
-
-    const badge = document.getElementById('ecobeeBadge');
-    if (badge) {
-      const { text, cls } = hvacBadge(d.hvacState);
-      badge.textContent = text;
-      badge.className = `hvac-badge ${cls}`;
-    }
-
-    const upd = document.getElementById('ecobeeUpdated');
-    if (upd && d.receivedAt) {
-      upd.textContent = 'Updated ' + new Date(d.receivedAt).toLocaleTimeString();
-    }
-  } catch {}
-}
-
-async function loadHomekitConfigStatus() {
-  try {
-    const r = await fetch('/api/homekit/config');
-    if (!r.ok) return;
-    const d = await r.json();
-    const el = document.getElementById('ecobeeConfigStatus');
-    if (d.token) {
-      el.textContent = '✓ Push endpoint active — configure your iOS Shortcut below';
-      el.className = 'keys-status ok';
-    } else {
-      el.textContent = '⚠ Token not configured';
-      el.className = 'keys-status missing';
-    }
-    const urlInput = document.getElementById('homekitPushUrl');
-    if (urlInput) urlInput.value = window.location.origin + '/api/homekit/push';
-    const tokenInput = document.getElementById('homekitTokenDisplay');
-    if (tokenInput) tokenInput.value = d.token || '';
-  } catch {}
-}
-
-document.getElementById('homekitCopyUrlBtn')?.addEventListener('click', () => {
-  const val = document.getElementById('homekitPushUrl')?.value;
-  if (val) navigator.clipboard.writeText(val).catch(() => {});
-});
-
-document.getElementById('homekitCopyTokenBtn')?.addEventListener('click', () => {
-  const val = document.getElementById('homekitTokenDisplay')?.value;
-  if (val) navigator.clipboard.writeText(val).catch(() => {});
-});
-
-document.getElementById('homekitRegenBtn')?.addEventListener('click', async () => {
-  const msg = document.getElementById('homekitRegenMsg');
-  try {
-    const r = await fetch('/api/homekit/config/regenerate', { method: 'POST' });
-    const d = await r.json();
-    if (r.ok && d.token) {
-      const tokenInput = document.getElementById('homekitTokenDisplay');
-      if (tokenInput) tokenInput.value = d.token;
-      msg.textContent = 'Token regenerated — update your Shortcut'; msg.className = 'save-msg';
-    } else { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
-    setTimeout(() => msg.textContent = '', 4000);
-  } catch { msg.textContent = 'Error'; msg.className = 'save-msg err'; }
-});
-
-document.getElementById('ecobeeSettingsPanel')?.addEventListener('toggle', function() {
-  if (this.open) loadHomekitConfigStatus();
-});
-
 // ── Init all new features ─────────────────────────────────────────────────────
 updateLatest();
 updatePressureTrend();
@@ -1719,13 +1510,10 @@ loadThresholds();
 loadAlerts();
 loadStreak();
 loadLocation();
-loadHomekitData();
-
 setInterval(updatePressureTrend, 120000);
 setInterval(updateExtStats, 300000);
 setInterval(updateTrends, 120000);
 setInterval(loadAlerts, 5 * 60 * 1000);
-setInterval(loadHomekitData, 3 * 60 * 1000);
 </script>
 </body>
 </html>

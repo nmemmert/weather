@@ -3067,13 +3067,6 @@ function renderAmbientStation(device) {
   setEl('st-uv', data.uv != null ? data.uv : '--');
   setEl('st-solar', data.solarradiation != null ? Math.round(data.solarradiation) : '--');
 
-  const indoorCard = document.getElementById('st-indoor-card');
-  if (data.tempinf != null) {
-    setEl('st-tempin', fmtTemp(data.tempinf));
-    setEl('st-humin', data.humidityin != null ? `${data.humidityin}% RH` : '');
-    if (indoorCard) indoorCard.classList.remove('hidden');
-  }
-
   if (peekEl && data.tempf != null) {
     peekEl.textContent = `· ${fmtTemp(data.tempf)}°${tempUnit} ${data.humidity != null ? data.humidity + '% RH' : ''}`;
   }
